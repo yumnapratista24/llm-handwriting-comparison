@@ -1,0 +1,231 @@
+import { getModel, VERDICT_STYLES, deriveVerdict, type RunResult } from "@/lib/models";
+
+interface Props {
+  result: RunResult;
+  accent: string;
+}
+
+const fmt = (n: number | null) => (n == null ? "—" : n.toLocaleString("en-US"));
+
+const labelStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  letterSpacing: ".1em",
+  color: "#a2967f",
+};
+
+function Metric({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+  return (
+    <div style={{ flex: 1, minWidth: 120, background: "#fffdf7", padding: "13px 16px" }}>
+      <div style={labelStyle}>{label}</div>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 17,
+          color: valueColor ?? "#2c2620",
+          marginTop: 3,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+export default function ResultDetail({ result, accent: _accent }: Props) {
+  const model = getModel(result.modelKey);
+  const grade = result.grade!;
+  const vk = deriveVerdict(grade.score);
+  const vs = VERDICT_STYLES[vk];
+
+  return (
+    <div
+      style={{
+        background: "#fffdf7",
+        border: "1px solid #e6dcc7",
+        borderRadius: 12,
+        overflow: "hidden",
+        animation: "pop .25s ease",
+      }}
+    >
+      {/* header */}
+      <div
+        style={{
+          padding: "20px 22px",
+          borderBottom: "1px solid #efe7d6",
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 20,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
+            <span style={{ width: 9, height: 9, borderRadius: "50%", background: model?.dot }} />
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 600 }}>
+              {model?.label}
+            </span>
+            <span style={{ fontSize: 11, color: "#9a8e79" }}>{model?.vendor}</span>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "7px 13px",
+              borderRadius: 9,
+              background: vs.bg,
+              color: vs.fg,
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            <span style={{ width: 9, height: 9, borderRadius: "50%", background: vs.dot }} />
+            {vs.label}
+          </div>
+          <div
+            style={{
+              marginTop: 7,
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              color: "#7a6f5e",
+            }}
+          >
+            Skor {grade.score} / 100
+          </div>
+        </div>
+      </div>
+
+      {/* metrics strip */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 1,
+          background: "#efe7d6",
+          borderBottom: "1px solid #efe7d6",
+        }}
+      >
+        <Metric label="LATENSI" value={`${grade.latency.toFixed(1)} s`} />
+        <Metric label="TOKEN MASUK" value={fmt(grade.usage.prompt_tokens)} />
+        <Metric label="TOKEN KELUAR" value={fmt(grade.usage.completion_tokens)} />
+        <Metric label="TOTAL TOKEN" value={fmt(grade.usage.total_tokens)} />
+      </div>
+
+      {/* body: extraction + feedback */}
+      <div
+        style={{
+          padding: "20px 22px",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 20,
+        }}
+      >
+        {/* extraction */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ ...labelStyle, fontSize: 10.5 }}>EKSTRAKSI DATA</span>
+            <span style={{ fontSize: 10.5, color: "#9a8e79" }}>— yang dibaca model dari gambar</span>
+          </div>
+          <div
+            style={{
+              background: "#fbf7ee",
+              border: "1px solid #ece2cd",
+              borderRadius: 9,
+              padding: "14px 15px",
+              fontSize: 12.5,
+              lineHeight: 1.62,
+              color: "#3a342b",
+              whiteSpace: "pre-wrap",
+              fontFamily: "var(--font-mono)",
+              maxHeight: 340,
+              overflow: "auto",
+            }}
+          >
+            {grade.extracted_text}
+          </div>
+          {grade.extraction_note && (
+            <div
+              style={{
+                marginTop: 10,
+                display: "flex",
+                gap: 8,
+                alignItems: "flex-start",
+                fontSize: 11.5,
+                color: "#8a7d65",
+                lineHeight: 1.5,
+              }}
+            >
+              <span style={{ color: model?.dot, flexShrink: 0 }}>ⓘ</span>
+              <span>{grade.extraction_note}</span>
+            </div>
+          )}
+        </div>
+
+        {/* feedback */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ ...labelStyle, fontSize: 10.5 }}>UMPAN BALIK</span>
+            <span style={{ fontSize: 10.5, color: "#9a8e79" }}>— untuk siswa</span>
+          </div>
+          <p style={{ margin: "0 0 14px", fontSize: 13, lineHeight: 1.6, color: "#3a342b" }}>
+            {grade.feedback_text}
+          </p>
+
+          {grade.strengths.length > 0 && (
+            <div style={{ marginBottom: 13 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#3f6b4a",
+                  marginBottom: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span>✓</span> Kekuatan
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
+                {grade.strengths.map((s, i) => (
+                  <li key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: "#4a4337" }}>
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {grade.improvements.length > 0 && (
+            <div>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#9a6b1f",
+                  marginBottom: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span>→</span> Saran perbaikan
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 5 }}>
+                {grade.improvements.map((im, i) => (
+                  <li key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: "#4a4337" }}>
+                    {im}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
