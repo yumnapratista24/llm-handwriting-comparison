@@ -29,17 +29,23 @@ const DEFAULT_QUESTION =
 // ── Supabase helpers ────────────────────────────────────────────────────────
 
 function db() {
-  try { return getSupabase(); } catch { return null; }
+  try {
+    return getSupabase();
+  } catch {
+    return null;
+  }
 }
 
 async function dbSaveRun(run: Run) {
-  const { error } = await db()!.from("grading_runs").insert({
-    id: run.id,
-    question: run.question,
-    image_count: run.imageCount,
-    system_prompt: run.systemPrompt,
-    title: run.title ?? null,
-  });
+  const { error } = await db()!
+    .from("grading_runs")
+    .insert({
+      id: run.id,
+      question: run.question,
+      image_count: run.imageCount,
+      system_prompt: run.systemPrompt,
+      title: run.title ?? null,
+    });
   if (error) console.error("[db] saveRun:", error.message);
 }
 
@@ -117,7 +123,10 @@ async function dbDeleteRun(runId: string) {
 }
 
 async function dbDeleteResult(resultId: string) {
-  const { error } = await db()!.from("grading_results").delete().eq("id", resultId);
+  const { error } = await db()!
+    .from("grading_results")
+    .delete()
+    .eq("id", resultId);
   if (error) console.error("[db] deleteResult:", error.message);
 }
 
@@ -147,37 +156,50 @@ async function loadRunsFromDb(): Promise<Run[]> {
   const { data: rubricScoreRows, error: rubricScoreErr } = await client
     .from("grading_rubric_scores")
     .select("*");
-  if (rubricScoreErr) console.error("[db] loadRubricScores:", rubricScoreErr.message);
+  if (rubricScoreErr)
+    console.error("[db] loadRubricScores:", rubricScoreErr.message);
 
   return runRows.map((row: Record<string, unknown>) => {
     // Rubric definition for this run, ordered by position
     const rubricDefs = (rubricDefRows ?? [])
       .filter((rd: Record<string, unknown>) => rd.run_id === row.id)
-      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => (a.position as number) - (b.position as number));
+      .sort(
+        (a: Record<string, unknown>, b: Record<string, unknown>) =>
+          (a.position as number) - (b.position as number),
+      );
 
-    const rubric: RubricDef[] = rubricDefs.map((rd: Record<string, unknown>) => ({
-      criterion: rd.criterion as string,
-      max: rd.max_score as number,
-    }));
+    const rubric: RubricDef[] = rubricDefs.map(
+      (rd: Record<string, unknown>) => ({
+        criterion: rd.criterion as string,
+        max: rd.max_score as number,
+      }),
+    );
 
     const results: RunResult[] = (resultRows ?? [])
       .filter((r: Record<string, unknown>) => r.run_id === row.id)
       .map((r: Record<string, unknown>) => {
         // Join rubric definitions with per-model scores for this result
-        const breakdown = rubricDefs.map((rd: Record<string, unknown>) => {
-          const score = (rubricScoreRows ?? []).find(
-            (s: Record<string, unknown>) =>
-              s.rubric_id === rd.id && s.result_id === r.id,
-          ) as Record<string, unknown> | undefined;
-          return score
-            ? {
-                criterion: rd.criterion as string,
-                max: rd.max_score as number,
-                awarded: score.awarded_score as number,
-                reason: score.reason as string,
-              }
-            : null;
-        }).filter(Boolean) as Array<{ criterion: string; max: number; awarded: number; reason: string }>;
+        const breakdown = rubricDefs
+          .map((rd: Record<string, unknown>) => {
+            const score = (rubricScoreRows ?? []).find(
+              (s: Record<string, unknown>) =>
+                s.rubric_id === rd.id && s.result_id === r.id,
+            ) as Record<string, unknown> | undefined;
+            return score
+              ? {
+                  criterion: rd.criterion as string,
+                  max: rd.max_score as number,
+                  awarded: score.awarded_score as number,
+                  reason: score.reason as string,
+                }
+              : null;
+          })
+          .filter(Boolean) as Array<{
+          criterion: string;
+          max: number;
+          awarded: number;
+          reason: string;
+        }>;
 
         return {
           id: r.id as string,
@@ -221,7 +243,10 @@ async function loadRunsFromDb(): Promise<Run[]> {
 export default function Home() {
   const [question, setQuestion] = useState(DEFAULT_QUESTION);
   const [images, setImages] = useState<UploadImage[]>([]);
-  const [selectedModels, setSelectedModels] = useState<string[]>(["gpt4o", "gemini25"]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([
+    "gpt4o",
+    "gemini25",
+  ]);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_PROMPT);
   const [rubric, setRubric] = useState<RubricCriterion[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -244,28 +269,32 @@ export default function Home() {
 
   // ── image handlers ──────────────────────────────────────────────────────
 
-  const addFiles = useCallback((fileList: FileList | null) => {
-    const room = MAX_IMAGES - images.length;
-    const files = Array.from(fileList ?? [])
-      .filter((f) => f.type.startsWith("image/"))
-      .slice(0, Math.max(0, room));
-    files.forEach((f) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setImages((prev) => [
-          ...prev,
-          {
-            id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            label: f.name,
-            src: reader.result as string,
-          },
-        ]);
-      };
-      reader.readAsDataURL(f);
-    });
-  }, [images.length]);
+  const addFiles = useCallback(
+    (fileList: FileList | null) => {
+      const room = MAX_IMAGES - images.length;
+      const files = Array.from(fileList ?? [])
+        .filter((f) => f.type.startsWith("image/"))
+        .slice(0, Math.max(0, room));
+      files.forEach((f) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setImages((prev) => [
+            ...prev,
+            {
+              id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              label: f.name,
+              src: reader.result as string,
+            },
+          ]);
+        };
+        reader.readAsDataURL(f);
+      });
+    },
+    [images.length],
+  );
 
-  const removeImage = (id: string) => setImages((prev) => prev.filter((im) => im.id !== id));
+  const removeImage = (id: string) =>
+    setImages((prev) => prev.filter((im) => im.id !== id));
 
   // ── model selection ─────────────────────────────────────────────────────
 
@@ -278,7 +307,8 @@ export default function Home() {
   // ── generate ────────────────────────────────────────────────────────────
 
   const currentRun = runs.find((r) => r.id === currentRunId) ?? null;
-  const anyPending = currentRun?.results.some((r) => r.status === "pending") ?? false;
+  const anyPending =
+    currentRun?.results.some((r) => r.status === "pending") ?? false;
 
   const rubricTotal = rubric.reduce((s, r) => s + (r.max || 0), 0);
   const rubricInvalid =
@@ -286,7 +316,13 @@ export default function Home() {
     (rubricTotal > 100 || rubric.some((r) => r.criterion.trim() === ""));
 
   const generate = async () => {
-    if (anyPending || images.length === 0 || selectedModels.length === 0 || rubricInvalid) return;
+    if (
+      anyPending ||
+      images.length === 0 ||
+      selectedModels.length === 0 ||
+      rubricInvalid
+    )
+      return;
 
     const runId = crypto.randomUUID();
     const pendingResults: RunResult[] = selectedModels.map((key) => ({
@@ -332,7 +368,9 @@ export default function Home() {
               rubric: activeRubric.length ? activeRubric : undefined,
             }),
           });
+          console.log(res);
           const data = await res.json();
+          console.log(data);
           if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
 
           const grade = data as GradeResponse;
@@ -350,14 +388,18 @@ export default function Home() {
                 : {
                     ...r,
                     results: r.results.map((x) =>
-                      x.id === pending.id ? doneResult : x
+                      x.id === pending.id ? doneResult : x,
                     ),
-                  }
-            )
+                  },
+            ),
           );
 
           await dbSaveResult(doneResult);
-          await dbSaveRubricScores(doneResult.id, rubricRows, grade.rubric_breakdown);
+          await dbSaveRubricScores(
+            doneResult.id,
+            rubricRows,
+            grade.rubric_breakdown,
+          );
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Gagal";
           console.error(`[grade] ${pending.modelKey}:`, msg);
@@ -372,7 +414,11 @@ export default function Home() {
               feedback_text: "Terjadi kesalahan saat memanggil model.",
               strengths: [],
               improvements: [],
-              usage: { prompt_tokens: null, completion_tokens: null, total_tokens: null },
+              usage: {
+                prompt_tokens: null,
+                completion_tokens: null,
+                total_tokens: null,
+              },
               latency: 0,
             },
             verdictKind: "bad",
@@ -384,13 +430,13 @@ export default function Home() {
                 : {
                     ...r,
                     results: r.results.map((x) =>
-                      x.id === pending.id ? errResult : x
+                      x.id === pending.id ? errResult : x,
                     ),
-                  }
-            )
+                  },
+            ),
           );
         }
-      })
+      }),
     );
   };
 
@@ -403,10 +449,14 @@ export default function Home() {
         if (run.id !== currentRunId) return run;
         const next = run.results.filter((r) => r.id !== resultId);
         setActiveResultId((active) =>
-          active === resultId ? (next.length ? next[next.length - 1].id : null) : active
+          active === resultId
+            ? next.length
+              ? next[next.length - 1].id
+              : null
+            : active,
         );
         return { ...run, results: next };
-      })
+      }),
     );
   };
 
@@ -447,7 +497,9 @@ export default function Home() {
 
   const renameRun = (runId: string, title: string) => {
     setRuns((prev) =>
-      prev.map((r) => r.id === runId ? { ...r, title: title.trim() || undefined } : r)
+      prev.map((r) =>
+        r.id === runId ? { ...r, title: title.trim() || undefined } : r,
+      ),
     );
     dbUpdateRunTitle(runId, title);
   };
@@ -459,7 +511,8 @@ export default function Home() {
   const activePending = activeResult?.status === "pending";
   const activeDone = activeResult?.status === "done" ? activeResult : null;
 
-  const pendingCount = currentRun?.results.filter((r) => r.status === "pending").length ?? 0;
+  const pendingCount =
+    currentRun?.results.filter((r) => r.status === "pending").length ?? 0;
   const totalCount = currentRun?.results.length ?? 0;
 
   function timeStr(ts: number) {
@@ -475,7 +528,8 @@ export default function Home() {
       style={{
         minHeight: "100vh",
         background: "#f4eee1",
-        backgroundImage: "radial-gradient(rgba(120,100,70,.045) 1px, transparent 1px)",
+        backgroundImage:
+          "radial-gradient(rgba(120,100,70,.045) 1px, transparent 1px)",
         backgroundSize: "22px 22px",
         fontFamily: "var(--font-sans)",
         color: "#2c2620",
@@ -527,14 +581,30 @@ export default function Home() {
               Penilai Esai — Perbandingan LLM
             </h1>
           </div>
-          <p style={{ margin: "9px 0 0", color: "#7a6f5e", fontSize: 13.5, maxWidth: 640, lineHeight: 1.5 }}>
-            Unggah lembar jawaban tulisan tangan, pilih beberapa model, lalu jalankan bersamaan
-            untuk membandingkan ekstraksi, penilaian, dan latensi.
+          <p
+            style={{
+              margin: "9px 0 0",
+              color: "#7a6f5e",
+              fontSize: 13.5,
+              maxWidth: 640,
+              lineHeight: 1.5,
+            }}
+          >
+            Unggah lembar jawaban tulisan tangan, pilih beberapa model, lalu
+            jalankan bersamaan untuk membandingkan ekstraksi, penilaian, dan
+            latensi.
           </p>
         </div>
 
         {/* header buttons */}
-        <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 9,
+            flexShrink: 0,
+          }}
+        >
           <button
             onClick={() => setDrawer("prompt")}
             style={{
@@ -589,7 +659,15 @@ export default function Home() {
         </div>
       </header>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 24, maxWidth: 1320, margin: "0 auto" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 24,
+          maxWidth: 1320,
+          margin: "0 auto",
+        }}
+      >
         {/* ── input row ── */}
         <section
           style={{
@@ -670,10 +748,19 @@ export default function Home() {
               >
                 Belum ada hasil
               </div>
-              <div style={{ fontSize: 13, color: "#9a8e79", maxWidth: 360, lineHeight: 1.55 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "#9a8e79",
+                  maxWidth: 360,
+                  lineHeight: 1.55,
+                }}
+              >
                 Pilih satu atau beberapa model lalu klik{" "}
-                <strong style={{ color: "#6b6151" }}>Generate</strong>. Setiap run tersimpan di{" "}
-                <strong style={{ color: "#6b6151" }}>Riwayat</strong> dan dapat dibuka kembali.
+                <strong style={{ color: "#6b6151" }}>Generate</strong>. Setiap
+                run tersimpan di{" "}
+                <strong style={{ color: "#6b6151" }}>Riwayat</strong> dan dapat
+                dibuka kembali.
               </div>
             </div>
           ) : currentRun ? (
@@ -690,11 +777,24 @@ export default function Home() {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "#3a342b" }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: 17,
+                      color: "#3a342b",
+                    }}
+                  >
                     Hasil run
                   </span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "#9a8e79" }}>
-                    {timeStr(currentRun.ts)} · {currentRun.imageCount} lembar · {totalCount} model
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11.5,
+                      color: "#9a8e79",
+                    }}
+                  >
+                    {timeStr(currentRun.ts)} · {currentRun.imageCount} lembar ·{" "}
+                    {totalCount} model
                   </span>
                 </div>
                 <div style={{ fontSize: 11.5, color: "#9a8e79" }}>
@@ -740,13 +840,18 @@ export default function Home() {
                     }}
                   />
                   <div style={{ fontSize: 13, color: "#9a8e79" }}>
-                    Menjalankan {activeResult ? activeResult.modelKey : "model"}…
+                    Menjalankan {activeResult ? activeResult.modelKey : "model"}
+                    …
                   </div>
                 </div>
               )}
 
               {activeDone && (
-                <ResultDetail result={activeDone} accent={ACCENT} rubric={currentRun?.rubric} />
+                <ResultDetail
+                  result={activeDone}
+                  accent={ACCENT}
+                  rubric={currentRun?.rubric}
+                />
               )}
             </>
           ) : null}

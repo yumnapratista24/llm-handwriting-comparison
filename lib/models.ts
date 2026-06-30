@@ -11,30 +11,79 @@ export interface ModelInfo {
 }
 
 export const MODELS: ModelInfo[] = [
-  { key: "gpt4o",    label: "GPT-4o",           sumopodId: "gpt-4o",                  vendor: "OpenAI",    dot: "#5a8f7b" },
-  { key: "gpt41",    label: "GPT-4.1",           sumopodId: "gpt-4.1",                 vendor: "OpenAI",    dot: "#5a8f7b" },
-  { key: "sonnet",   label: "Claude Sonnet 4",   sumopodId: "claude-sonnet-4-6",       vendor: "Anthropic", dot: "#c08552" },
-  { key: "opus",     label: "Claude Opus 4",     sumopodId: "claude-opus-4-7",         vendor: "Anthropic", dot: "#b5552f" },
-  { key: "gemini25", label: "Gemini 2.5 Flash",  sumopodId: "gemini/gemini-2.5-flash", vendor: "Google",    dot: "#6b8fc7" },
-  { key: "gemini35", label: "Gemini 3.5 Flash",  sumopodId: "gemini/gemini-3.5-flash", vendor: "Google",    dot: "#6b8fc7" },
-  { key: "qwenmax",  label: "Qwen3.7 Max",       sumopodId: "qwen3.7-max",             vendor: "Alibaba",   dot: "#9a78b8" },
-  { key: "qwenplus", label: "Qwen3.7 Plus",      sumopodId: "qwen3.7-plus",            vendor: "Alibaba",   dot: "#9a78b8" },
+  {
+    key: "gpt4o",
+    label: "GPT-4o",
+    sumopodId: "gpt-4o",
+    vendor: "OpenAI",
+    dot: "#5a8f7b",
+  },
+  {
+    key: "gpt41",
+    label: "GPT-4.1",
+    sumopodId: "gpt-4.1",
+    vendor: "OpenAI",
+    dot: "#5a8f7b",
+  },
+  {
+    key: "sonnet",
+    label: "Claude Sonnet 4",
+    sumopodId: "claude-sonnet-4-6",
+    vendor: "Anthropic",
+    dot: "#c08552",
+  },
+  {
+    key: "opus",
+    label: "Claude Opus 4",
+    sumopodId: "claude-opus-4-7",
+    vendor: "Anthropic",
+    dot: "#b5552f",
+  },
+  {
+    key: "gemini25",
+    label: "Gemini 2.5 Flash",
+    sumopodId: "gemini/gemini-2.5-flash",
+    vendor: "Google",
+    dot: "#6b8fc7",
+  },
+  {
+    key: "gemini35",
+    label: "Gemini 3.5 Flash",
+    sumopodId: "gemini/gemini-3.5-flash",
+    vendor: "Google",
+    dot: "#6b8fc7",
+  },
+  {
+    key: "qwenplus",
+    label: "Qwen3.7 Plus",
+    sumopodId: "qwen3.7-plus",
+    vendor: "Alibaba",
+    dot: "#9a78b8",
+  },
 ];
 
 export function getModel(key: string): ModelInfo | undefined {
   return MODELS.find((m) => m.key === key);
 }
 
-export const VERDICT_STYLES: Record<VerdictKind, { bg: string; fg: string; dot: string; label: string }> = {
-  ok:      { bg: "#e7f0e8", fg: "#3f6b4a", dot: "#5b9268", label: "Benar" },
-  partial: { bg: "#f6ecd5", fg: "#8a661f", dot: "#c79a3a", label: "Sebagian benar" },
-  bad:     { bg: "#f4e2dc", fg: "#9a4632", dot: "#c26a52", label: "Kurang tepat" },
+export const VERDICT_STYLES: Record<
+  VerdictKind,
+  { bg: string; fg: string; dot: string; label: string }
+> = {
+  ok: { bg: "#e7f0e8", fg: "#3f6b4a", dot: "#5b9268", label: "Benar" },
+  partial: {
+    bg: "#f6ecd5",
+    fg: "#8a661f",
+    dot: "#c79a3a",
+    label: "Sebagian benar",
+  },
+  bad: { bg: "#f4e2dc", fg: "#9a4632", dot: "#c26a52", label: "Kurang tepat" },
 };
 
 export const ACCENTS = {
   Terracotta: "#b5552f",
-  Forest:     "#3f6b4a",
-  Ink:        "#3b332a",
+  Forest: "#3f6b4a",
+  Ink: "#3b332a",
 } as const;
 
 export type AccentName = keyof typeof ACCENTS;
@@ -63,7 +112,12 @@ export interface GradePayload {
 export interface GradeResponse extends GradePayload {
   usage: Usage;
   latency: number;
-  rubric_breakdown?: Array<{ criterion: string; max: number; awarded: number; reason: string }>;
+  rubric_breakdown?: Array<{
+    criterion: string;
+    max: number;
+    awarded: number;
+    reason: string;
+  }>;
 }
 
 export interface UploadImage {
