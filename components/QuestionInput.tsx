@@ -1,12 +1,18 @@
+import RubricBuilder from "@/components/RubricBuilder";
+import type { RubricCriterion } from "@/lib/prompt";
+
 const SUPPORT_LINE =
   "penjelasan · penjelasan + diagram · matematika · matematika + penjelasan";
 
 interface Props {
   value: string;
   onChange: (value: string) => void;
+  rubric: RubricCriterion[];
+  onRubricChange: (rubric: RubricCriterion[]) => void;
+  accent: string;
 }
 
-export default function QuestionInput({ value, onChange }: Props) {
+export default function QuestionInput({ value, onChange, rubric, onRubricChange, accent }: Props) {
   return (
     <div style={{ padding: "18px 18px 16px", borderRight: "1px solid #efe7d6" }}>
       <div
@@ -60,6 +66,7 @@ export default function QuestionInput({ value, onChange }: Props) {
       <div style={{ marginTop: 9, fontSize: 11, color: "#9a8e79", lineHeight: 1.5 }}>
         Mendukung: {SUPPORT_LINE}
       </div>
+      <RubricBuilder rubric={rubric} onChange={onRubricChange} accent={accent} />
     </div>
   );
 }

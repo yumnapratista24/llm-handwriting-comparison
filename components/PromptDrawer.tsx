@@ -9,7 +9,14 @@ interface Props {
   accent: string;
 }
 
-export default function PromptDrawer({ open, value, onChange, onReset, onClose, accent }: Props) {
+export default function PromptDrawer({
+  open,
+  value,
+  onChange,
+  onReset,
+  onClose,
+  accent,
+}: Props) {
   const backdropStyle: React.CSSProperties = {
     position: "fixed",
     inset: 0,
@@ -100,9 +107,102 @@ export default function PromptDrawer({ open, value, onChange, onReset, onClose, 
             }}
           >
             Satu prompt global dipakai untuk{" "}
-            <strong style={{ color: "#5a5142" }}>semua model</strong> agar perbandingan adil.
-            Soal dikirim otomatis di pesan pengguna — tidak perlu token khusus di sini.
+            <strong style={{ color: "#5a5142" }}>semua model</strong> agar
+            perbandingan adil. Soal dikirim otomatis di pesan pengguna — tidak
+            perlu token khusus di sini.
           </p>
+
+          {/* accordion: default prompt preview */}
+          <details
+            style={{
+              marginBottom: 14,
+              border: "1px solid #e3d9c5",
+              borderRadius: 9,
+              background: "#fbf7ee",
+              overflow: "hidden",
+            }}
+          >
+            <summary
+              style={{
+                padding: "9px 13px",
+                fontSize: 12,
+                color: "#7a6f5e",
+                cursor: "pointer",
+                userSelect: "none",
+                fontFamily: "var(--font-mono)",
+                listStyle: "none",
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span style={{ fontSize: 10 }}>▶</span> Lihat contoh default
+              prompt
+            </summary>
+            <div style={{ padding: "0 13px 13px" }}>
+              <pre
+                style={{
+                  margin: "10px 0 8px",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11.5,
+                  lineHeight: 1.6,
+                  color: "#3a342b",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  background: "#f3ecdb",
+                  border: "1px solid #e3d9c5",
+                  borderRadius: 7,
+                  padding: "11px 13px",
+                  maxHeight: 200,
+                  overflow: "auto",
+                }}
+              >
+                {DEFAULT_PROMPT}
+              </pre>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  color: "#a2967f",
+                  lineHeight: 1.5,
+                }}
+              >
+                Catatan:{" "}
+                <strong style={{ color: "#7a6f5e" }}>IMPORTANT NOTES</strong>{" "}
+                selalu ditambahkan otomatis di akhir oleh sistem — tidak perlu
+                ditulis di sini.
+              </p>
+            </div>
+          </details>
+
+          {/* guidance hint */}
+          <div
+            style={{
+              marginBottom: 10,
+              padding: "10px 13px",
+              background: "#f6ecd5",
+              border: "1px solid #e3d9c5",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "#7a6f5e",
+              lineHeight: 1.6,
+            }}
+          >
+            <strong
+              style={{ color: "#5a5142", display: "block", marginBottom: 4 }}
+            >
+              Tips penulisan prompt
+            </strong>
+            Definisikan dengan lengkap behavior apa yang ingin LLM lakukan.
+            Seperti:
+            <ol style={{ margin: "5px 0 0", paddingLeft: 18 }}>
+              <li>Language</li>
+              <li>Feedback style</li>
+              <li>Evaluation method (e.g. Glow & Grow, etc </li>
+              <li>etc</li>
+            </ol>
+          </div>
+
           <textarea
             value={value}
             onChange={(e) => onChange(e.target.value)}

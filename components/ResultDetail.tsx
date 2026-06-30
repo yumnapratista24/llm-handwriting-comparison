@@ -1,8 +1,10 @@
-import { getModel, VERDICT_STYLES, deriveVerdict, type RunResult } from "@/lib/models";
+import React from "react";
+import { getModel, VERDICT_STYLES, deriveVerdict, type RunResult, type RubricDef } from "@/lib/models";
 
 interface Props {
   result: RunResult;
   accent: string;
+  rubric?: RubricDef[];
 }
 
 const fmt = (n: number | null) => (n == null ? "—" : n.toLocaleString("en-US"));
@@ -32,7 +34,7 @@ function Metric({ label, value, valueColor }: { label: string; value: string; va
   );
 }
 
-export default function ResultDetail({ result, accent: _accent }: Props) {
+export default function ResultDetail({ result, accent: _accent, rubric }: Props) {
   const model = getModel(result.modelKey);
   const grade = result.grade!;
   const vk = deriveVerdict(grade.score);
@@ -226,6 +228,97 @@ export default function ResultDetail({ result, accent: _accent }: Props) {
           )}
         </div>
       </div>
+
+      {/* rubric breakdown */}
+      {rubric && rubric.length > 0 && grade.rubric_breakdown && grade.rubric_breakdown.length > 0 && (
+        <div style={{ borderTop: "1px solid #efe7d6", padding: "16px 22px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ ...labelStyle, fontSize: 10.5 }}>RINCIAN RUBRIK</span>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead>
+              <tr>
+                {["Kriteria", "Maks", "Diberikan"].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      textAlign: h === "Kriteria" ? "left" : "right",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      letterSpacing: ".08em",
+                      color: "#a2967f",
+                      padding: "5px 8px 8px",
+                      borderBottom: "1px solid #efe7d6",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {h.toUpperCase()}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rubric.map((def, i) => {
+                const score = grade.rubric_breakdown![i];
+                const awarded = score?.awarded ?? null;
+                const reason = score?.reason ?? null;
+                const awardedColor =
+                  awarded == null
+                    ? "#9a8e79"
+                    : awarded >= def.max * 0.8
+                      ? "#3f6b4a"
+                      : awarded >= def.max * 0.5
+                        ? "#9a661f"
+                        : "#c0392b";
+                return (
+                  <React.Fragment key={i}>
+                    <tr style={{ background: i % 2 === 0 ? "#fbf7ee" : "#fffdf7" }}>
+                      <td style={{ padding: "7px 8px", color: "#3a342b" }}>{def.criterion}</td>
+                      <td
+                        style={{
+                          padding: "7px 8px",
+                          textAlign: "right",
+                          fontFamily: "var(--font-mono)",
+                          color: "#9a8e79",
+                        }}
+                      >
+                        {def.max}
+                      </td>
+                      <td
+                        style={{
+                          padding: "7px 8px",
+                          textAlign: "right",
+                          fontFamily: "var(--font-mono)",
+                          fontWeight: 600,
+                          color: awardedColor,
+                        }}
+                      >
+                        {awarded ?? "—"}
+                      </td>
+                    </tr>
+                    {reason && (
+                      <tr style={{ background: i % 2 === 0 ? "#fbf7ee" : "#fffdf7" }}>
+                        <td
+                          colSpan={3}
+                          style={{
+                            padding: "0 8px 9px 20px",
+                            fontSize: 11.5,
+                            color: "#9a8e79",
+                            fontStyle: "italic",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          {reason}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

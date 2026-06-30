@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { getModel, type GradeResponse } from "@/lib/models";
-import { DEFAULT_PROMPT, buildUserPrompt, GRADE_TOOL } from "@/lib/prompt";
+import { composeSystemPrompt, buildUserPrompt, buildGradeTool, type RubricCriterion } from "@/lib/prompt";
 
 export const runtime = "nodejs";
 
@@ -9,6 +9,7 @@ interface GradeRequest {
   question: string;
   images: string[];
   systemPrompt?: string;
+  rubric?: RubricCriterion[];
 }
 
 function err(message: string, status: number) {
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     return err("Body permintaan tidak valid", 400);
   }
 
-  const { modelKey, question, images, systemPrompt } = body;
+  const { modelKey, question, images, systemPrompt, rubric } = body;
   const model = getModel(modelKey);
   if (!model) return err(`Model tidak dikenal: ${modelKey}`, 400);
   if (!question?.trim()) return err("Soal esai kosong", 400);
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     image_url: { url },
   }));
 
-  const systemMessage = systemPrompt?.trim() || DEFAULT_PROMPT;
+  const systemMessage = composeSystemPrompt(systemPrompt);
   console.log("[grade] systemPrompt source:", systemPrompt?.trim() ? "user-edited" : "default");
   console.log("[grade] systemPrompt preview:", systemMessage.slice(0, 80).replace(/\n/g, "↵"));
 
@@ -52,10 +53,10 @@ export async function POST(request: Request) {
         { role: "system", content: systemMessage },
         {
           role: "user",
-          content: [{ type: "text", text: buildUserPrompt(question) }, ...imageContent],
+          content: [{ type: "text", text: buildUserPrompt(question, rubric) }, ...imageContent],
         },
       ],
-      tools: [GRADE_TOOL],
+      tools: [buildGradeTool(!!rubric?.length)],
       tool_choice: { type: "function", function: { name: "grade_answer" } },
     });
   } catch (e) {
@@ -86,6 +87,15 @@ export async function POST(request: Request) {
     feedback_text:   parsed.feedback_text   ?? "",
     strengths:       Array.isArray(parsed.strengths)    ? parsed.strengths    : [],
     improvements:    Array.isArray(parsed.improvements) ? parsed.improvements : [],
+    rubric_breakdown:
+      Array.isArray(parsed.rubric_breakdown) && parsed.rubric_breakdown.length
+        ? parsed.rubric_breakdown.map((r: Record<string, unknown>) => ({
+            criterion: String(r.criterion ?? ""),
+            max: Number(r.max ?? 0),
+            awarded: Number(r.awarded ?? 0),
+            reason: String(r.reason ?? ""),
+          }))
+        : undefined,
     usage: {
       prompt_tokens:     res.usage?.prompt_tokens     ?? null,
       completion_tokens: res.usage?.completion_tokens ?? null,

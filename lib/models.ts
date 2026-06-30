@@ -63,6 +63,7 @@ export interface GradePayload {
 export interface GradeResponse extends GradePayload {
   usage: Usage;
   latency: number;
+  rubric_breakdown?: Array<{ criterion: string; max: number; awarded: number; reason: string }>;
 }
 
 export interface UploadImage {
@@ -85,11 +86,18 @@ export interface RunResult {
   verdictKind?: VerdictKind;
 }
 
+export interface RubricDef {
+  criterion: string;
+  max: number;
+}
+
 export interface Run {
   id: string;
   ts: number;
   question: string;
   imageCount: number;
   systemPrompt: string;
+  title?: string;
+  rubric?: RubricDef[];
   results: RunResult[];
 }

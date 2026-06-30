@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { type Run } from "@/lib/models";
 import { getModel } from "@/lib/models";
 
@@ -7,6 +8,7 @@ interface Props {
   currentRunId: string | null;
   onOpen: (runId: string) => void;
   onRemove: (runId: string) => void;
+  onRename: (runId: string, title: string) => void;
   onClose: () => void;
   accent: string;
 }
@@ -23,9 +25,28 @@ export default function HistoryDrawer({
   currentRunId,
   onOpen,
   onRemove,
+  onRename,
   onClose,
   accent,
 }: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  function startEdit(e: React.MouseEvent, run: Run) {
+    e.stopPropagation();
+    setEditingId(run.id);
+    setEditValue(run.title ?? "");
+  }
+
+  function confirmEdit(runId: string) {
+    onRename(runId, editValue);
+    setEditingId(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
   const backdropStyle: React.CSSProperties = {
     position: "fixed",
     inset: 0,
@@ -120,6 +141,7 @@ export default function HistoryDrawer({
                 const isCurrent = run.id === currentRunId;
                 const doneCount = run.results.filter((r) => r.status === "done").length;
                 const modelKeys = [...new Set(run.results.map((r) => r.modelKey))];
+                const isEditing = editingId === run.id;
 
                 return (
                   <div
@@ -135,7 +157,7 @@ export default function HistoryDrawer({
                         : "1px solid #e6dcc7",
                     }}
                   >
-                    {/* top row */}
+                    {/* top row: timestamp + actions */}
                     <div
                       style={{
                         display: "flex",
@@ -184,6 +206,72 @@ export default function HistoryDrawer({
                           ×
                         </button>
                       </div>
+                    </div>
+
+                    {/* title row */}
+                    <div
+                      style={{ marginBottom: 8 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {isEditing ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            autoFocus
+                            type="text"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") confirmEdit(run.id);
+                              if (e.key === "Escape") cancelEdit();
+                            }}
+                            placeholder="Nama sesi ini…"
+                            style={{
+                              flex: 1,
+                              fontSize: 12,
+                              border: "1px solid #e3d9c5",
+                              borderRadius: 7,
+                              background: "#fbf7ee",
+                              padding: "3px 8px",
+                              color: "#2c2620",
+                              outline: "none",
+                              fontFamily: "var(--font-sans)",
+                            }}
+                          />
+                          <button
+                            onClick={() => confirmEdit(run.id)}
+                            title="Simpan"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: accent,
+                              fontSize: 15,
+                              cursor: "pointer",
+                              lineHeight: 1,
+                              padding: "2px 0",
+                              flexShrink: 0,
+                            }}
+                          >
+                            ✓
+                          </button>
+                        </div>
+                      ) : (
+                        <span
+                          onClick={(e) => startEdit(e, run)}
+                          title="Klik untuk memberi nama"
+                          style={{
+                            display: "inline-block",
+                            fontSize: 12,
+                            color: run.title ? "#3a342b" : "#c4b89f",
+                            background: "#f3ecdb",
+                            borderRadius: 20,
+                            padding: "2px 10px",
+                            cursor: "text",
+                            fontStyle: run.title ? "normal" : "italic",
+                          }}
+                        >
+                          {run.title ?? "Tambah judul…"}
+                        </span>
+                      )}
                     </div>
 
                     {/* question snippet */}

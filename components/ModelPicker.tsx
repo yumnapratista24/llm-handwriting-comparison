@@ -7,6 +7,7 @@ interface Props {
   onGenerate: () => void;
   generating: boolean;
   hasImages: boolean;
+  rubricInvalid?: boolean;
   accent: string;
 }
 
@@ -17,15 +18,17 @@ export default function ModelPicker({
   onGenerate,
   generating,
   hasImages,
+  rubricInvalid,
   accent,
 }: Props) {
   const available = MODELS.filter((m) => !selectedModels.includes(m.key));
   const allSelected = available.length === 0;
-  const disabled = generating || !hasImages || selectedModels.length === 0;
+  const disabled = generating || !hasImages || selectedModels.length === 0 || !!rubricInvalid;
 
   let hint = "Tiap run tersimpan otomatis di Riwayat";
   if (!hasImages) hint = "Unggah minimal satu lembar jawaban";
   else if (selectedModels.length === 0) hint = "Pilih minimal satu model";
+  else if (rubricInvalid) hint = "Perbaiki rubrik sebelum generate";
 
   const genLabel = generating
     ? "Menganalisis…"
@@ -174,7 +177,7 @@ export default function ModelPicker({
           color: "#fff",
           background: generating ? "#a89478" : accent,
           cursor: disabled ? "default" : "pointer",
-          opacity: !hasImages || selectedModels.length === 0 ? 0.55 : 1,
+          opacity: disabled ? 0.55 : 1,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",

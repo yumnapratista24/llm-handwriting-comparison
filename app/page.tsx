@@ -6,10 +6,11 @@ import {
   deriveVerdict,
   type GradeResponse,
   type Run,
+  type RubricDef,
   type RunResult,
   type UploadImage,
 } from "@/lib/models";
-import { DEFAULT_PROMPT } from "@/lib/prompt";
+import { DEFAULT_PROMPT, type RubricCriterion } from "@/lib/prompt";
 import { getSupabase } from "@/lib/supabase";
 import QuestionInput from "@/components/QuestionInput";
 import SheetUploader from "@/components/SheetUploader";
@@ -37,8 +38,57 @@ async function dbSaveRun(run: Run) {
     question: run.question,
     image_count: run.imageCount,
     system_prompt: run.systemPrompt,
+    title: run.title ?? null,
   });
   if (error) console.error("[db] saveRun:", error.message);
+}
+
+async function dbSaveRubric(
+  runId: string,
+  rubric: RubricDef[],
+): Promise<Array<{ id: string; position: number }>> {
+  if (!rubric.length) return [];
+  const rows = rubric.map((r, i) => ({
+    run_id: runId,
+    position: i,
+    criterion: r.criterion,
+    max_score: r.max,
+  }));
+  const { data, error } = await db()!
+    .from("grading_rubric")
+    .insert(rows)
+    .select("id, position");
+  if (error) {
+    console.error("[db] saveRubric:", error.message);
+    return [];
+  }
+  return ((data ?? []) as Array<{ id: string; position: number }>).sort(
+    (a, b) => a.position - b.position,
+  );
+}
+
+async function dbSaveRubricScores(
+  resultId: string,
+  rubricRows: Array<{ id: string; position: number }>,
+  breakdown: GradeResponse["rubric_breakdown"],
+) {
+  if (!breakdown?.length || !rubricRows.length) return;
+  const rows = rubricRows.map((rb, i) => ({
+    rubric_id: rb.id,
+    result_id: resultId,
+    awarded_score: breakdown[i]?.awarded ?? 0,
+    reason: breakdown[i]?.reason ?? "",
+  }));
+  const { error } = await db()!.from("grading_rubric_scores").insert(rows);
+  if (error) console.error("[db] saveRubricScores:", error.message);
+}
+
+async function dbUpdateRunTitle(runId: string, title: string) {
+  const { error } = await db()!
+    .from("grading_runs")
+    .update({ title: title.trim() || null })
+    .eq("id", runId);
+  if (error) console.error("[db] updateTitle:", error.message);
 }
 
 async function dbSaveResult(r: RunResult) {
@@ -89,30 +139,69 @@ async function loadRunsFromDb(): Promise<Run[]> {
     .select("*");
   if (resultErr) console.error("[db] loadResults:", resultErr.message);
 
+  const { data: rubricDefRows, error: rubricDefErr } = await client
+    .from("grading_rubric")
+    .select("*");
+  if (rubricDefErr) console.error("[db] loadRubric:", rubricDefErr.message);
+
+  const { data: rubricScoreRows, error: rubricScoreErr } = await client
+    .from("grading_rubric_scores")
+    .select("*");
+  if (rubricScoreErr) console.error("[db] loadRubricScores:", rubricScoreErr.message);
+
   return runRows.map((row: Record<string, unknown>) => {
+    // Rubric definition for this run, ordered by position
+    const rubricDefs = (rubricDefRows ?? [])
+      .filter((rd: Record<string, unknown>) => rd.run_id === row.id)
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => (a.position as number) - (b.position as number));
+
+    const rubric: RubricDef[] = rubricDefs.map((rd: Record<string, unknown>) => ({
+      criterion: rd.criterion as string,
+      max: rd.max_score as number,
+    }));
+
     const results: RunResult[] = (resultRows ?? [])
       .filter((r: Record<string, unknown>) => r.run_id === row.id)
-      .map((r: Record<string, unknown>) => ({
-        id: r.id as string,
-        runId: r.run_id as string,
-        modelKey: r.model_key as string,
-        status: "done" as const,
-        grade: {
-          score: r.score as number,
-          extracted_text: r.extracted_text as string,
-          extraction_note: r.extraction_note as string,
-          feedback_text: r.feedback_text as string,
-          strengths: (r.strengths as string[]) ?? [],
-          improvements: (r.improvements as string[]) ?? [],
-          usage: {
-            prompt_tokens: r.prompt_tokens as number | null,
-            completion_tokens: r.completion_tokens as number | null,
-            total_tokens: r.total_tokens as number | null,
+      .map((r: Record<string, unknown>) => {
+        // Join rubric definitions with per-model scores for this result
+        const breakdown = rubricDefs.map((rd: Record<string, unknown>) => {
+          const score = (rubricScoreRows ?? []).find(
+            (s: Record<string, unknown>) =>
+              s.rubric_id === rd.id && s.result_id === r.id,
+          ) as Record<string, unknown> | undefined;
+          return score
+            ? {
+                criterion: rd.criterion as string,
+                max: rd.max_score as number,
+                awarded: score.awarded_score as number,
+                reason: score.reason as string,
+              }
+            : null;
+        }).filter(Boolean) as Array<{ criterion: string; max: number; awarded: number; reason: string }>;
+
+        return {
+          id: r.id as string,
+          runId: r.run_id as string,
+          modelKey: r.model_key as string,
+          status: "done" as const,
+          grade: {
+            score: r.score as number,
+            extracted_text: r.extracted_text as string,
+            extraction_note: r.extraction_note as string,
+            feedback_text: r.feedback_text as string,
+            strengths: (r.strengths as string[]) ?? [],
+            improvements: (r.improvements as string[]) ?? [],
+            usage: {
+              prompt_tokens: r.prompt_tokens as number | null,
+              completion_tokens: r.completion_tokens as number | null,
+              total_tokens: r.total_tokens as number | null,
+            },
+            latency: r.latency as number,
+            rubric_breakdown: breakdown.length ? breakdown : undefined,
           },
-          latency: r.latency as number,
-        },
-        verdictKind: deriveVerdict(r.score as number),
-      }));
+          verdictKind: deriveVerdict(r.score as number),
+        };
+      });
 
     return {
       id: row.id as string,
@@ -120,6 +209,8 @@ async function loadRunsFromDb(): Promise<Run[]> {
       question: row.question as string,
       imageCount: row.image_count as number,
       systemPrompt: row.system_prompt as string,
+      title: (row.title as string | null) ?? undefined,
+      rubric: rubric.length ? rubric : undefined,
       results,
     };
   });
@@ -132,6 +223,7 @@ export default function Home() {
   const [images, setImages] = useState<UploadImage[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>(["gpt4o", "gemini25"]);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_PROMPT);
+  const [rubric, setRubric] = useState<RubricCriterion[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [activeResultId, setActiveResultId] = useState<string | null>(null);
@@ -188,8 +280,13 @@ export default function Home() {
   const currentRun = runs.find((r) => r.id === currentRunId) ?? null;
   const anyPending = currentRun?.results.some((r) => r.status === "pending") ?? false;
 
+  const rubricTotal = rubric.reduce((s, r) => s + (r.max || 0), 0);
+  const rubricInvalid =
+    rubric.length > 0 &&
+    (rubricTotal > 100 || rubric.some((r) => r.criterion.trim() === ""));
+
   const generate = async () => {
-    if (anyPending || images.length === 0 || selectedModels.length === 0) return;
+    if (anyPending || images.length === 0 || selectedModels.length === 0 || rubricInvalid) return;
 
     const runId = crypto.randomUUID();
     const pendingResults: RunResult[] = selectedModels.map((key) => ({
@@ -199,12 +296,15 @@ export default function Home() {
       status: "pending",
     }));
 
+    const activeRubric: RubricDef[] = rubric.length > 0 ? rubric : [];
+
     const run: Run = {
       id: runId,
       ts: Date.now(),
       question,
       imageCount: images.length,
       systemPrompt,
+      rubric: activeRubric.length ? activeRubric : undefined,
       results: pendingResults,
     };
 
@@ -213,6 +313,7 @@ export default function Home() {
     setActiveResultId(pendingResults[0].id);
 
     await dbSaveRun(run);
+    const rubricRows = await dbSaveRubric(runId, activeRubric);
 
     const imageSrcs = images.map((im) => im.src);
 
@@ -228,6 +329,7 @@ export default function Home() {
               question,
               images: imageSrcs,
               systemPrompt,
+              rubric: activeRubric.length ? activeRubric : undefined,
             }),
           });
           const data = await res.json();
@@ -255,6 +357,7 @@ export default function Home() {
           );
 
           await dbSaveResult(doneResult);
+          await dbSaveRubricScores(doneResult.id, rubricRows, grade.rubric_breakdown);
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Gagal";
           console.error(`[grade] ${pending.modelKey}:`, msg);
@@ -328,6 +431,13 @@ export default function Home() {
       }
       return next;
     });
+  };
+
+  const renameRun = (runId: string, title: string) => {
+    setRuns((prev) =>
+      prev.map((r) => r.id === runId ? { ...r, title: title.trim() || undefined } : r)
+    );
+    dbUpdateRunTitle(runId, title);
   };
 
   // ── derived display values ───────────────────────────────────────────────
@@ -480,7 +590,13 @@ export default function Home() {
             alignItems: "stretch",
           }}
         >
-          <QuestionInput value={question} onChange={setQuestion} />
+          <QuestionInput
+            value={question}
+            onChange={setQuestion}
+            rubric={rubric}
+            onRubricChange={setRubric}
+            accent={ACCENT}
+          />
           <SheetUploader
             images={images}
             maxImages={MAX_IMAGES}
@@ -495,6 +611,7 @@ export default function Home() {
             onGenerate={generate}
             generating={anyPending}
             hasImages={images.length > 0}
+            rubricInvalid={rubricInvalid}
             accent={ACCENT}
           />
         </section>
@@ -617,7 +734,7 @@ export default function Home() {
               )}
 
               {activeDone && (
-                <ResultDetail result={activeDone} accent={ACCENT} />
+                <ResultDetail result={activeDone} accent={ACCENT} rubric={currentRun?.rubric} />
               )}
             </>
           ) : null}
@@ -639,6 +756,7 @@ export default function Home() {
         currentRunId={currentRunId}
         onOpen={openRun}
         onRemove={removeRun}
+        onRename={renameRun}
         onClose={() => setDrawer(null)}
         accent={ACCENT}
       />
