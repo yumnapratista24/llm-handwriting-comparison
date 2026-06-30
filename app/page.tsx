@@ -411,11 +411,23 @@ export default function Home() {
   };
 
   const openRun = (runId: string) => {
+    if (runId === currentRunId) {
+      setCurrentRunId(null);
+      setActiveResultId(null);
+      setQuestion(DEFAULT_QUESTION);
+      setRubric([]);
+      setSelectedModels(["gpt4o", "gemini25"]);
+      setDrawer(null);
+      return;
+    }
     const run = runs.find((r) => r.id === runId);
     if (!run) return;
     const done = run.results.find((r) => r.status === "done") ?? run.results[0];
     setCurrentRunId(runId);
     setActiveResultId(done?.id ?? null);
+    setQuestion(run.question);
+    setRubric(run.rubric ?? []);
+    setSelectedModels([...new Set(run.results.map((r) => r.modelKey))]);
     setDrawer(null);
   };
 

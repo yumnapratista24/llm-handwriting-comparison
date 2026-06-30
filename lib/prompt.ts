@@ -6,9 +6,7 @@ export const DEFAULT_PROMPT =
   `You are an expert academic grader. First, extract the text from the handwritten answer image(s), then grade it.
 
 Language: Bahasa Indonesia (semua teks keluaran harus dalam Bahasa Indonesia).
-Feedback Style: Use Glow and Grow format: Start with strengths (Glow), then suggest specific improvements (Grow).
-
-No specific rubric provided. Evaluate based on accuracy, completeness, and clarity.`;
+Feedback Style: Use Glow and Grow format: Start with strengths (Glow), then suggest specific improvements (Grow).`;
 
 export const IMPORTANT_NOTES =
   `IMPORTANT:

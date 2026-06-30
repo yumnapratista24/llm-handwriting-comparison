@@ -180,15 +180,17 @@ export default function HistoryDrawer({
                       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                         {isCurrent && (
                           <span
+                            title="Klik untuk batalkan pilihan"
                             style={{
                               fontSize: 9.5,
                               background: accent,
                               color: "#fff",
                               borderRadius: 20,
                               padding: "1px 7px",
+                              cursor: "pointer",
                             }}
                           >
-                            aktif
+                            aktif ×
                           </span>
                         )}
                         <button
