@@ -38,6 +38,30 @@ export function rubricCriterionMax(r: RubricCriterion): number {
   return r.cells.length ? Math.max(...r.cells.map((c) => c.level)) : 0;
 }
 
+// Reconcile extracted criteria onto one shared, index-aligned level set.
+// RubricBuilder's add/remove-level controls assume cells[i] is the same level
+// value across every criterion row — an LLM reading a table can't be trusted
+// to return that directly, so every import goes through this first.
+export function normalizeRubric(raw: RubricCriterion[]): RubricCriterion[] {
+  const levelSet = new Set<number>();
+  for (const r of raw) {
+    for (const c of r.cells) levelSet.add(c.level);
+  }
+  const levels = [...levelSet].sort((a, b) => a - b);
+
+  return raw.map((r) => {
+    const byLevel = new Map(r.cells.map((c) => [c.level, c.description]));
+    return {
+      criterion: r.criterion,
+      description: r.description,
+      cells: levels.map((level) => ({
+        level,
+        description: byLevel.get(level) ?? "",
+      })),
+    };
+  });
+}
+
 // Minimal chunk shape for the prompt (kept independent of server-only rag types).
 export interface PromptChunk {
   chunkId: string;
@@ -197,6 +221,64 @@ export function buildGradeTool(hasRubric: boolean, hasMaterial = false) {
 }
 
 export const GRADE_TOOL = buildGradeTool(false, false);
+
+// ── Rubric extraction (upload → transcribe into the matrix rubric) ──────────
+
+export const RUBRIC_EXTRACTION_INSTRUCTIONS =
+  `You are transcribing a grading rubric (criteria × score-level grid) from the provided document or image into structured data.
+
+Rules:
+1. Transcribe faithfully — preserve the level values (e.g. 0, 1, 2, 3) and every cell's descriptive text as close to verbatim as possible. Do not summarize, paraphrase, embellish, or invent content that isn't in the source.
+2. One entry per criterion (row) in the table, in the same order as the source.
+3. Each criterion's cells must cover every score level that appears anywhere in the source table for that row. If a cell is genuinely blank/illegible in the source, use an empty string for its description rather than guessing.
+4. If the source has a short criterion description/subtitle (separate from the criterion title), capture it in "description"; otherwise omit it.
+5. If no rubric table can be found in the provided content, return an empty criteria array — do not fabricate a rubric.
+6. You MUST call the extract_rubric function with your result. Do not reply with free text.`;
+
+export function buildRubricExtractionTool() {
+  return {
+    type: "function" as const,
+    function: {
+      name: "extract_rubric",
+      description: "Submit the rubric transcribed from the provided document or image.",
+      parameters: {
+        type: "object",
+        properties: {
+          criteria: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                criterion: { type: "string", description: "The criterion's title/name." },
+                description: {
+                  type: "string",
+                  description: "Short criterion description/subtitle, if present in the source.",
+                },
+                cells: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      level: { type: "number", description: "The score level value, e.g. 0, 1, 2, 3." },
+                      description: {
+                        type: "string",
+                        description: "The cell's descriptive text for this criterion at this level.",
+                      },
+                    },
+                    required: ["level", "description"],
+                  },
+                },
+              },
+              required: ["criterion", "cells"],
+            },
+            description: "One entry per rubric criterion (row), in source order. Empty array if no rubric table was found.",
+          },
+        },
+        required: ["criteria"],
+      },
+    },
+  };
+}
 
 // ── Tutor chat (Socratic 2-turn fallback discussion) ─────────────────────────
 

@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import type { RubricCriterion } from "@/lib/prompt";
 
 interface Props {
@@ -35,6 +36,27 @@ export default function RubricBuilder({
       sum + (r.cells.length ? Math.max(...r.cells.map((c) => c.level)) : 0),
     0,
   );
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/rubric-extract", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      onChange(data.criteria as RubricCriterion[]);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Gagal membaca rubrik");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function updateCriterionField(
     rowIndex: number,
@@ -148,19 +170,61 @@ export default function RubricBuilder({
             opsional
           </span>
         </div>
-        {rubric.length > 0 && (
-          <span
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          {rubric.length > 0 && (
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 11.5,
+                color: "#7a6f5e",
+              }}
+            >
+              Skor maksimum: {rubric.length} ×{" "}
+              {levels.length ? Math.max(...levels) : 0} = {totalMax}
+            </span>
+          )}
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
             style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 11.5,
-              color: "#7a6f5e",
+              border: "1px solid #e3d9c5",
+              background: "#fffdf7",
+              borderRadius: 7,
+              padding: "5px 11px",
+              fontSize: 12,
+              color: uploading ? "#c4b89f" : "#5a5142",
+              cursor: uploading ? "default" : "pointer",
+              whiteSpace: "nowrap",
             }}
           >
-            Skor maksimum: {rubric.length} ×{" "}
-            {levels.length ? Math.max(...levels) : 0} = {totalMax}
-          </span>
-        )}
+            {uploading ? "Membaca…" : "Unggah Rubrik"}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleUpload(file);
+            }}
+          />
+        </div>
       </div>
+
+      {uploadError && (
+        <div
+          style={{
+            padding: "8px 15px",
+            fontSize: 11.5,
+            color: "#c0392b",
+            borderBottom: "1px solid #efe7d6",
+          }}
+        >
+          {uploadError}
+        </div>
+      )}
 
       {rubric.length > 0 && (
         <div style={{ overflowX: "auto" }}>

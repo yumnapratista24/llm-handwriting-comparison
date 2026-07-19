@@ -18,7 +18,7 @@ export interface RetrievedChunk {
   content: string;
 }
 
-async function extractText(ext: string, buffer: Buffer): Promise<string> {
+export async function extractText(ext: string, buffer: Buffer): Promise<string> {
   if (ext === "pdf") {
     const { extractText: extract, getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(buffer));
