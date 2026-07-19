@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   ACCENTS,
   deriveVerdict,
+  rubricMaxScore,
   type AttachedDocument,
   type GradeResponse,
   type Run,
@@ -14,6 +15,7 @@ import {
 import { DEFAULT_PROMPT, type RubricCriterion } from "@/lib/prompt";
 import { getSupabase } from "@/lib/supabase";
 import QuestionInput from "@/components/QuestionInput";
+import RubricBuilder from "@/components/RubricBuilder";
 import SheetUploader from "@/components/SheetUploader";
 import ModelPicker from "@/components/ModelPicker";
 import ResultCards from "@/components/ResultCards";
@@ -60,7 +62,7 @@ async function dbSaveRubric(
     run_id: runId,
     position: i,
     criterion: r.criterion,
-    max_score: r.max,
+    description: r.description ?? null,
   }));
   const { data, error } = await db()!
     .from("grading_rubric")
@@ -70,9 +72,23 @@ async function dbSaveRubric(
     console.error("[db] saveRubric:", error.message);
     return [];
   }
-  return ((data ?? []) as Array<{ id: string; position: number }>).sort(
+  const rubricRows = ((data ?? []) as Array<{ id: string; position: number }>).sort(
     (a, b) => a.position - b.position,
   );
+
+  const levelRows = rubricRows.flatMap((rr, i) =>
+    rubric[i].cells.map((c) => ({
+      rubric_id: rr.id,
+      level_value: c.level,
+      description: c.description,
+    })),
+  );
+  if (levelRows.length) {
+    const { error: levelErr } = await db()!.from("grading_rubric_levels").insert(levelRows);
+    if (levelErr) console.error("[db] saveRubricLevels:", levelErr.message);
+  }
+
+  return rubricRows;
 }
 
 async function dbSaveRubricScores(
@@ -155,6 +171,11 @@ async function loadRunsFromDb(): Promise<Run[]> {
     .select("*");
   if (rubricDefErr) console.error("[db] loadRubric:", rubricDefErr.message);
 
+  const { data: rubricLevelRows, error: rubricLevelErr } = await client
+    .from("grading_rubric_levels")
+    .select("*");
+  if (rubricLevelErr) console.error("[db] loadRubricLevels:", rubricLevelErr.message);
+
   const { data: rubricScoreRows, error: rubricScoreErr } = await client
     .from("grading_rubric_scores")
     .select("*");
@@ -170,12 +191,32 @@ async function loadRunsFromDb(): Promise<Run[]> {
           (a.position as number) - (b.position as number),
       );
 
+    const cellsFor = (rubricId: unknown) =>
+      (rubricLevelRows ?? [])
+        .filter((lv: Record<string, unknown>) => lv.rubric_id === rubricId)
+        .sort(
+          (a: Record<string, unknown>, b: Record<string, unknown>) =>
+            (a.level_value as number) - (b.level_value as number),
+        )
+        .map((lv: Record<string, unknown>) => ({
+          level: lv.level_value as number,
+          description: lv.description as string,
+        }));
+
     const rubric: RubricDef[] = rubricDefs.map(
       (rd: Record<string, unknown>) => ({
         criterion: rd.criterion as string,
-        max: rd.max_score as number,
+        description: (rd.description as string | null) ?? undefined,
+        cells: cellsFor(rd.id),
       }),
     );
+
+    const maxFor = (rd: Record<string, unknown>) => {
+      const cells = cellsFor(rd.id);
+      return cells.length ? Math.max(...cells.map((c) => c.level)) : 0;
+    };
+
+    const runMaxScore = rubric.length ? rubricMaxScore(rubric) : 100;
 
     const results: RunResult[] = (resultRows ?? [])
       .filter((r: Record<string, unknown>) => r.run_id === row.id)
@@ -190,7 +231,7 @@ async function loadRunsFromDb(): Promise<Run[]> {
             return score
               ? {
                   criterion: rd.criterion as string,
-                  max: rd.max_score as number,
+                  max: maxFor(rd),
                   awarded: score.awarded_score as number,
                   reason: score.reason as string,
                 }
@@ -223,7 +264,7 @@ async function loadRunsFromDb(): Promise<Run[]> {
             latency: r.latency as number,
             rubric_breakdown: breakdown.length ? breakdown : undefined,
           },
-          verdictKind: deriveVerdict(r.score as number),
+          verdictKind: deriveVerdict(r.score as number, runMaxScore),
         };
       });
 
@@ -310,10 +351,13 @@ export default function Home() {
   const anyPending =
     currentRun?.results.some((r) => r.status === "pending") ?? false;
 
-  const rubricTotal = rubric.reduce((s, r) => s + (r.max || 0), 0);
+  const rubricLevels = rubric[0]?.cells.map((c) => c.level) ?? [];
+  const rubricLevelsDuplicate = new Set(rubricLevels).size !== rubricLevels.length;
   const rubricInvalid =
     rubric.length > 0 &&
-    (rubricTotal > 100 || rubric.some((r) => r.criterion.trim() === ""));
+    (rubric.some((r) => r.criterion.trim() === "") ||
+      rubricLevels.length < 2 ||
+      rubricLevelsDuplicate);
 
   const answer = answerText.trim();
 
@@ -691,8 +735,6 @@ export default function Home() {
           <QuestionInput
             value={question}
             onChange={setQuestion}
-            rubric={rubric}
-            onRubricChange={setRubric}
             documents={documents}
             onDocumentsChange={setDocuments}
             accent={ACCENT}
@@ -716,6 +758,11 @@ export default function Home() {
             rubricInvalid={rubricInvalid}
             accent={ACCENT}
           />
+        </section>
+
+        {/* ── rubric (own full-width section — needs room to grow) ── */}
+        <section>
+          <RubricBuilder rubric={rubric} onChange={setRubric} accent={ACCENT} />
         </section>
 
         {/* ── results ── */}

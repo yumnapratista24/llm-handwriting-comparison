@@ -1,6 +1,4 @@
-import RubricBuilder from "@/components/RubricBuilder";
 import SourceMaterialUploader from "@/components/SourceMaterialUploader";
-import type { RubricCriterion } from "@/lib/prompt";
 import type { AttachedDocument } from "@/lib/models";
 
 const SUPPORT_LINE =
@@ -9,8 +7,6 @@ const SUPPORT_LINE =
 interface Props {
   value: string;
   onChange: (value: string) => void;
-  rubric: RubricCriterion[];
-  onRubricChange: (rubric: RubricCriterion[]) => void;
   documents: AttachedDocument[];
   onDocumentsChange: (docs: AttachedDocument[]) => void;
   accent: string;
@@ -27,8 +23,6 @@ const labelStyle: React.CSSProperties = {
 export default function QuestionInput({
   value,
   onChange,
-  rubric,
-  onRubricChange,
   documents,
   onDocumentsChange,
   accent,
@@ -76,8 +70,6 @@ export default function QuestionInput({
       <div style={{ marginTop: 9, fontSize: 11, color: "#9a8e79", lineHeight: 1.5 }}>
         Mendukung: {SUPPORT_LINE}
       </div>
-
-      <RubricBuilder rubric={rubric} onChange={onRubricChange} accent={accent} />
 
       <SourceMaterialUploader documents={documents} onChange={onDocumentsChange} accent={accent} />
     </div>

@@ -1,5 +1,13 @@
 import React from "react";
-import { getModel, VERDICT_STYLES, deriveVerdict, type RunResult, type RubricDef } from "@/lib/models";
+import {
+  getModel,
+  VERDICT_STYLES,
+  deriveVerdict,
+  rubricCriterionMax,
+  rubricMaxScore,
+  type RunResult,
+  type RubricDef,
+} from "@/lib/models";
 
 interface Props {
   result: RunResult;
@@ -37,7 +45,8 @@ function Metric({ label, value, valueColor }: { label: string; value: string; va
 export default function ResultDetail({ result, accent: _accent, rubric }: Props) {
   const model = getModel(result.modelKey);
   const grade = result.grade!;
-  const vk = deriveVerdict(grade.score);
+  const maxScore = rubric && rubric.length > 0 ? rubricMaxScore(rubric) : 100;
+  const vk = deriveVerdict(grade.score, maxScore);
   const vs = VERDICT_STYLES[vk];
 
   return (
@@ -96,7 +105,7 @@ export default function ResultDetail({ result, accent: _accent, rubric }: Props)
               color: "#7a6f5e",
             }}
           >
-            Skor {grade.score} / 100
+            Skor {grade.score} / {maxScore}
           </div>
         </div>
       </div>
@@ -259,15 +268,16 @@ export default function ResultDetail({ result, accent: _accent, rubric }: Props)
             </thead>
             <tbody>
               {rubric.map((def, i) => {
+                const defMax = rubricCriterionMax(def);
                 const score = grade.rubric_breakdown![i];
                 const awarded = score?.awarded ?? null;
                 const reason = score?.reason ?? null;
                 const awardedColor =
                   awarded == null
                     ? "#9a8e79"
-                    : awarded >= def.max * 0.8
+                    : awarded >= defMax * 0.8
                       ? "#3f6b4a"
-                      : awarded >= def.max * 0.5
+                      : awarded >= defMax * 0.5
                         ? "#9a661f"
                         : "#c0392b";
                 return (
@@ -282,7 +292,7 @@ export default function ResultDetail({ result, accent: _accent, rubric }: Props)
                           color: "#9a8e79",
                         }}
                       >
-                        {def.max}
+                        {defMax}
                       </td>
                       <td
                         style={{

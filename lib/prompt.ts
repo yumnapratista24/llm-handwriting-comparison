@@ -12,8 +12,8 @@ export const IMPORTANT_NOTES =
   `IMPORTANT:
 1. First extract and transcribe the handwritten text from the image(s) verbatim into extracted_text. If the student's answer is already provided as text, use it as-is and do not transcribe anything.
 2. In extraction_note, give one short caveat about the transcription's reliability — note any faded/ambiguous words or likely misreads, or state that everything was read clearly. If the answer was provided as text, note that.
-3. If a rubric is provided in the user message, score STRICTLY and ONLY by those criteria. Score each criterion individually, sum the points, then scale proportionally to 0–100 if the rubric total ≠ 100. If no rubric is provided, evaluate based on accuracy, completeness, and clarity.
-4. When a rubric is provided, you MUST return rubric_breakdown with exactly one entry per criterion — each entry must include the criterion name, its max points, the points you awarded, and a one-sentence reason (in Bahasa Indonesia) explaining why you awarded that score.
+3. If a rubric is provided in the user message, score STRICTLY and ONLY by those criteria. For each criterion, choose exactly one of its defined score levels — do not award a value that isn't one of the listed levels, and do not interpolate between levels. The overall score is the SUM of the levels you awarded across all criteria — do NOT scale or normalize it to 100. If no rubric is provided, evaluate based on accuracy, completeness, and clarity on a 0–100 scale.
+4. When a rubric is provided, you MUST return rubric_breakdown with exactly one entry per criterion — each entry must include the criterion name, its max level value, the level value you awarded (must match one of the criterion's defined levels exactly), and a one-sentence reason (in Bahasa Indonesia) explaining why that level fits best.
 5. If MATERI SUMBER (source material) is provided, grade the answer against it: reward accuracy relative to the material and coverage of its key points, flag key points from the material that the answer missed, and do not reward claims that contradict it. Cite the supporting chunks in the citations field using their chunk id (the value after "chunk:"). Do not reproduce answer-key or full-solution content from the material verbatim to the student. If the material does not cover a point you need, you may supplement from general knowledge but state clearly in the feedback that it is not from the material (and do not cite a chunk for it).
 6. Write feedback_text as a short paragraph for the student, plus concrete strengths (glow) and improvements (grow).
 7. You MUST call the grade_answer function with your evaluation. Do not reply with free text.`;
@@ -23,9 +23,19 @@ export function composeSystemPrompt(userPrompt?: string): string {
   return `${base}\n\n${IMPORTANT_NOTES}`;
 }
 
+export interface RubricLevelCell {
+  level: number;        // shared level value, e.g. 0, 1, 2, 3
+  description: string;  // what qualifies for this level at this criterion
+}
+
 export interface RubricCriterion {
-  criterion: string;
-  max: number;
+  criterion: string;         // title
+  description?: string;      // short criterion description
+  cells: RubricLevelCell[];  // one entry per shared level
+}
+
+export function rubricCriterionMax(r: RubricCriterion): number {
+  return r.cells.length ? Math.max(...r.cells.map((c) => c.level)) : 0;
 }
 
 // Minimal chunk shape for the prompt (kept independent of server-only rag types).
@@ -54,9 +64,18 @@ export function buildUserPrompt(
 ): string {
   const rubricBlock =
     rubric && rubric.length > 0
-      ? `\n\nRubric (grade STRICTLY by these criteria only):\n` +
-        rubric.map((r) => `- ${r.criterion}: max ${r.max} poin`).join("\n") +
-        `\nTotal: ${rubric.reduce((s, r) => s + r.max, 0)} poin\n\nScore each criterion individually, then sum. Scale proportionally to 0–100 if total ≠ 100.`
+      ? `\n\nRubric (grade STRICTLY by these criteria and level descriptions; the awarded score for each criterion MUST be exactly one of its defined level values):\n` +
+        rubric
+          .map((r, i) => {
+            const desc = r.description ? ` — ${r.description}` : "";
+            const levels = [...r.cells]
+              .sort((a, b) => a.level - b.level)
+              .map((c) => `   - Level ${c.level}: ${c.description}`)
+              .join("\n");
+            return `${i + 1}. ${r.criterion}${desc}\n${levels}`;
+          })
+          .join("\n\n") +
+        `\n\nScore each criterion by choosing the single best-matching level (no interpolation between levels). The overall score is the SUM of the levels you award — do NOT scale or normalize it to 100.`
       : "";
 
   const answer = answerText?.trim();
@@ -82,7 +101,8 @@ const BASE_PROPERTIES = {
   },
   score: {
     type: "number",
-    description: "Overall score from 0 to 100.",
+    description:
+      "Overall score. When a rubric is provided: the SUM of rubric_breakdown[].awarded (do not scale to 100). When no rubric is provided: 0 to 100 based on accuracy, completeness, and clarity.",
   },
   feedback_text: {
     type: "string",
@@ -108,11 +128,14 @@ const RUBRIC_BREAKDOWN_PROPERTY = {
     type: "object",
     properties: {
       criterion: { type: "string" },
-      max: { type: "number" },
-      awarded: { type: "number" },
+      max: { type: "number", description: "This criterion's highest defined level value." },
+      awarded: {
+        type: "number",
+        description: "The level value you chose for this criterion — MUST exactly match one of its defined levels.",
+      },
       reason: {
         type: "string",
-        description: "One sentence in Bahasa Indonesia explaining why this score was awarded.",
+        description: "One sentence in Bahasa Indonesia explaining why this level fits best.",
       },
     },
     required: ["criterion", "max", "awarded", "reason"],

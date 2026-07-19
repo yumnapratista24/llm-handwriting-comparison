@@ -88,9 +88,10 @@ export const ACCENTS = {
 
 export type AccentName = keyof typeof ACCENTS;
 
-export function deriveVerdict(score: number): VerdictKind {
-  if (score >= 85) return "ok";
-  if (score >= 60) return "partial";
+export function deriveVerdict(score: number, maxScore = 100): VerdictKind {
+  const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
+  if (pct >= 85) return "ok";
+  if (pct >= 60) return "partial";
   return "bad";
 }
 
@@ -147,9 +148,23 @@ export interface RunResult {
   verdictKind?: VerdictKind;
 }
 
+export interface RubricLevelCell {
+  level: number;
+  description: string;
+}
+
 export interface RubricDef {
   criterion: string;
-  max: number;
+  description?: string;
+  cells: RubricLevelCell[];
+}
+
+export function rubricCriterionMax(r: RubricDef): number {
+  return r.cells.length ? Math.max(...r.cells.map((c) => c.level)) : 0;
+}
+
+export function rubricMaxScore(rubric: RubricDef[]): number {
+  return rubric.reduce((sum, r) => sum + rubricCriterionMax(r), 0);
 }
 
 // A source document attached to a run (already ingested — chunked + embedded).

@@ -1,4 +1,11 @@
-import { getModel, VERDICT_STYLES, deriveVerdict, type Run, type RunResult } from "@/lib/models";
+import {
+  getModel,
+  VERDICT_STYLES,
+  deriveVerdict,
+  rubricMaxScore,
+  type Run,
+  type RunResult,
+} from "@/lib/models";
 
 interface Props {
   run: Run;
@@ -67,6 +74,7 @@ export default function ResultCards({ run, activeResultId, accent, onSelect, onR
   const best = bestMetrics(run.results);
   const doneCount = run.results.filter((r) => r.status === "done").length;
   const showBestHint = doneCount >= 2;
+  const maxScore = run.rubric && run.rubric.length > 0 ? rubricMaxScore(run.rubric) : 100;
 
   return (
     <div style={{ marginBottom: 18 }}>
@@ -104,7 +112,7 @@ export default function ResultCards({ run, activeResultId, accent, onSelect, onR
           const model = getModel(r.modelKey);
           const isActive = r.id === activeResultId;
           const isDone = r.status === "done" && !!r.grade;
-          const vk = isDone ? deriveVerdict(r.grade!.score) : null;
+          const vk = isDone ? deriveVerdict(r.grade!.score, maxScore) : null;
           const vs = vk ? VERDICT_STYLES[vk] : null;
 
           return (
