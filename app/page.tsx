@@ -258,15 +258,11 @@ export default function Home() {
   const [activeResultId, setActiveResultId] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<"history" | "prompt" | null>(null);
 
-  // Load history on mount
+  // Load history on mount (list only — do not auto-select a run)
   useEffect(() => {
     loadRunsFromDb().then((loaded) => {
       if (loaded.length > 0) {
         setRuns(loaded);
-        const first = loaded[0];
-        setCurrentRunId(first.id);
-        const firstDone = first.results.find((r) => r.status === "done");
-        setActiveResultId(firstDone?.id ?? first.results[0]?.id ?? null);
       }
     });
   }, []);
