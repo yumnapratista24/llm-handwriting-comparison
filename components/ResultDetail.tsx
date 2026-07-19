@@ -319,6 +319,49 @@ export default function ResultDetail({ result, accent: _accent, rubric }: Props)
           </table>
         </div>
       )}
+
+      {/* citations from source material */}
+      {grade.citations && grade.citations.length > 0 && (
+        <div style={{ borderTop: "1px solid #efe7d6", padding: "16px 22px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ ...labelStyle, fontSize: 10.5 }}>RUJUKAN MATERI</span>
+            <span style={{ fontSize: 10.5, color: "#9a8e79" }}>— dasar dari materi sumber</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {grade.citations.map((c, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  gap: 9,
+                  alignItems: "flex-start",
+                  background: "#fbf7ee",
+                  border: "1px solid #ece2cd",
+                  borderRadius: 8,
+                  padding: "9px 11px",
+                }}
+              >
+                <span style={{ color: model?.dot, fontSize: 12, flexShrink: 0, marginTop: 1 }}>❝</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, color: "#3a342b", lineHeight: 1.5 }}>{c.snippet}</div>
+                  {c.document && (
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10.5,
+                        color: "#a2967f",
+                      }}
+                    >
+                      {c.document}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

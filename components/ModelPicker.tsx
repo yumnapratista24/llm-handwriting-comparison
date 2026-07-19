@@ -26,7 +26,7 @@ export default function ModelPicker({
   const disabled = generating || !hasImages || selectedModels.length === 0 || !!rubricInvalid;
 
   let hint = "Tiap run tersimpan otomatis di Riwayat";
-  if (!hasImages) hint = "Unggah minimal satu lembar jawaban";
+  if (!hasImages) hint = "Unggah gambar atau ketik jawaban siswa";
   else if (selectedModels.length === 0) hint = "Pilih minimal satu model";
   else if (rubricInvalid) hint = "Perbaiki rubrik sebelum generate";
 

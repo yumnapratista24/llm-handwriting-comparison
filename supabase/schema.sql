@@ -1,5 +1,8 @@
 -- Run this once in the Supabase SQL editor for the prototype-llm-comparison project.
 -- No auth / user_id. Permissive RLS so the anon key can read and write freely.
+--
+-- Source material (RAG) is NOT persisted here: documents live in Pinecone + client
+-- session state. No documents/document_chunks/grading_run_documents tables.
 
 create table if not exists grading_runs (
   id uuid primary key,

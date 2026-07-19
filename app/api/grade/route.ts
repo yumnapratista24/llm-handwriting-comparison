@@ -1,6 +1,14 @@
 import OpenAI from "openai";
-import { getModel, type GradeResponse } from "@/lib/models";
-import { composeSystemPrompt, buildUserPrompt, buildGradeTool, type RubricCriterion } from "@/lib/prompt";
+import { getModel, type GradeResponse, type Citation } from "@/lib/models";
+import {
+  composeSystemPrompt,
+  buildUserPrompt,
+  buildMaterialBlock,
+  buildGradeTool,
+  type RubricCriterion,
+  type PromptChunk,
+} from "@/lib/prompt";
+import { retrieveForGrading, type RetrievedChunk } from "@/lib/rag";
 
 export const runtime = "nodejs";
 
@@ -10,11 +18,19 @@ interface GradeRequest {
   images: string[];
   systemPrompt?: string;
   rubric?: RubricCriterion[];
+  answerText?: string;
+  documentIds?: string[];
 }
 
 function err(message: string, status: number) {
   return Response.json({ error: message }, { status });
 }
+
+const toPromptChunk = (c: RetrievedChunk): PromptChunk => ({
+  chunkId: c.chunkId,
+  document: c.document,
+  content: c.content,
+});
 
 export async function POST(request: Request) {
   const apiKey = process.env.SUMOPOD_API_KEY;
@@ -27,22 +43,51 @@ export async function POST(request: Request) {
     return err("Body permintaan tidak valid", 400);
   }
 
-  const { modelKey, question, images, systemPrompt, rubric } = body;
+  const { modelKey, question, images, systemPrompt, rubric, answerText } = body;
+  const documentIds = body.documentIds ?? [];
+  const answer = answerText?.trim();
+
   const model = getModel(modelKey);
   if (!model) return err(`Model tidak dikenal: ${modelKey}`, 400);
   if (!question?.trim()) return err("Soal esai kosong", 400);
-  if (!images?.length) return err("Tidak ada gambar lembar jawaban", 400);
+  if (!answer && !images?.length) {
+    return err("Tidak ada jawaban — unggah gambar atau ketik jawaban", 400);
+  }
+
+  // Retrieve source material (if any) — RAG only, keyed on question (+ answer text).
+  let material: RetrievedChunk[] = [];
+  if (documentIds.length > 0) {
+    try {
+      material = await retrieveForGrading(documentIds, question, answer);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Pengambilan materi gagal";
+      console.error("[grade] material:", message);
+      return err(`Gagal mengambil materi sumber: ${message}`, 502);
+    }
+  }
+  const promptChunks = material.map(toPromptChunk);
 
   const client = new OpenAI({ apiKey, baseURL: "https://ai.sumopod.com/v1" });
 
-  const imageContent = images.map((url) => ({
-    type: "image_url" as const,
-    image_url: { url },
-  }));
+  // Text answer → grade the text directly (no images). Otherwise send images.
+  const imageContent = answer
+    ? []
+    : images.map((url) => ({ type: "image_url" as const, image_url: { url } }));
 
   const systemMessage = composeSystemPrompt(systemPrompt);
-  console.log("[grade] systemPrompt source:", systemPrompt?.trim() ? "user-edited" : "default");
-  console.log("[grade] systemPrompt preview:", systemMessage.slice(0, 80).replace(/\n/g, "↵"));
+  const userText = buildUserPrompt(question, rubric, answer);
+
+  // Material rides as its own text part, ahead of the question.
+  const materialContent = promptChunks.length
+    ? [{ type: "text" as const, text: buildMaterialBlock(promptChunks) }]
+    : [];
+
+  console.log(
+    "[grade] chunks:",
+    material.length,
+    "answer:",
+    answer ? "text" : "images",
+  );
 
   const start = performance.now();
   let res;
@@ -53,10 +98,10 @@ export async function POST(request: Request) {
         { role: "system", content: systemMessage },
         {
           role: "user",
-          content: [{ type: "text", text: buildUserPrompt(question, rubric) }, ...imageContent],
+          content: [...materialContent, { type: "text", text: userText }, ...imageContent],
         },
       ],
-      tools: [buildGradeTool(!!rubric?.length)],
+      tools: [buildGradeTool(!!rubric?.length, promptChunks.length > 0)],
       tool_choice: { type: "function", function: { name: "grade_answer" } },
     });
   } catch (e) {
@@ -80,9 +125,26 @@ export async function POST(request: Request) {
     return err("Hasil grade_answer bukan JSON valid", 502);
   }
 
+  // Text answers: the provided text IS the answer — no transcription.
+  const extracted_text = answer ? answer : parsed.extracted_text ?? "";
+  const extraction_note = answer
+    ? "Jawaban diberikan dalam bentuk teks."
+    : parsed.extraction_note ?? "";
+
+  const citations =
+    Array.isArray(parsed.citations) && parsed.citations.length
+      ? parsed.citations
+          .map((c: Citation) => ({
+            chunk_id: String(c.chunk_id ?? ""),
+            document: String(c.document ?? ""),
+            snippet: String(c.snippet ?? ""),
+          }))
+          .filter((c) => c.chunk_id)
+      : undefined;
+
   const payload: GradeResponse = {
-    extracted_text:  parsed.extracted_text  ?? "",
-    extraction_note: parsed.extraction_note ?? "",
+    extracted_text,
+    extraction_note,
     score: typeof parsed.score === "number" ? Math.max(0, Math.min(100, Math.round(parsed.score))) : 0,
     feedback_text:   parsed.feedback_text   ?? "",
     strengths:       Array.isArray(parsed.strengths)    ? parsed.strengths    : [],
@@ -96,6 +158,7 @@ export async function POST(request: Request) {
             reason: String(r.reason ?? ""),
           }))
         : undefined,
+    citations: citations && citations.length ? citations : undefined,
     usage: {
       prompt_tokens:     res.usage?.prompt_tokens     ?? null,
       completion_tokens: res.usage?.completion_tokens ?? null,

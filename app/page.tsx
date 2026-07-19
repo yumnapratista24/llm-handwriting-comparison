@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   ACCENTS,
   deriveVerdict,
+  type AttachedDocument,
   type GradeResponse,
   type Run,
   type RubricDef,
@@ -17,6 +18,7 @@ import SheetUploader from "@/components/SheetUploader";
 import ModelPicker from "@/components/ModelPicker";
 import ResultCards from "@/components/ResultCards";
 import ResultDetail from "@/components/ResultDetail";
+import ChatPanel from "@/components/ChatPanel";
 import PromptDrawer from "@/components/PromptDrawer";
 import HistoryDrawer from "@/components/HistoryDrawer";
 
@@ -249,6 +251,8 @@ export default function Home() {
   ]);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_PROMPT);
   const [rubric, setRubric] = useState<RubricCriterion[]>([]);
+  const [answerText, setAnswerText] = useState("");
+  const [documents, setDocuments] = useState<AttachedDocument[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [activeResultId, setActiveResultId] = useState<string | null>(null);
@@ -315,10 +319,12 @@ export default function Home() {
     rubric.length > 0 &&
     (rubricTotal > 100 || rubric.some((r) => r.criterion.trim() === ""));
 
+  const answer = answerText.trim();
+
   const generate = async () => {
     if (
       anyPending ||
-      images.length === 0 ||
+      (images.length === 0 && !answer) ||
       selectedModels.length === 0 ||
       rubricInvalid
     )
@@ -333,6 +339,7 @@ export default function Home() {
     }));
 
     const activeRubric: RubricDef[] = rubric.length > 0 ? rubric : [];
+    const documentIds = documents.map((d) => d.id);
 
     const run: Run = {
       id: runId,
@@ -366,11 +373,11 @@ export default function Home() {
               images: imageSrcs,
               systemPrompt,
               rubric: activeRubric.length ? activeRubric : undefined,
+              answerText: answer || undefined,
+              documentIds: documentIds.length ? documentIds : undefined,
             }),
           });
-          console.log(res);
           const data = await res.json();
-          console.log(data);
           if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
 
           const grade = data as GradeResponse;
@@ -466,6 +473,8 @@ export default function Home() {
       setActiveResultId(null);
       setQuestion(DEFAULT_QUESTION);
       setRubric([]);
+      setAnswerText("");
+      setDocuments([]);
       setSelectedModels(["gpt4o", "gemini25"]);
       setDrawer(null);
       return;
@@ -477,6 +486,9 @@ export default function Home() {
     setActiveResultId(done?.id ?? null);
     setQuestion(run.question);
     setRubric(run.rubric ?? []);
+    // Documents + typed answer are session-only (not persisted) — clear on open.
+    setAnswerText("");
+    setDocuments([]);
     setSelectedModels([...new Set(run.results.map((r) => r.modelKey))]);
     setDrawer(null);
   };
@@ -685,6 +697,8 @@ export default function Home() {
             onChange={setQuestion}
             rubric={rubric}
             onRubricChange={setRubric}
+            documents={documents}
+            onDocumentsChange={setDocuments}
             accent={ACCENT}
           />
           <SheetUploader
@@ -693,6 +707,8 @@ export default function Home() {
             accent={ACCENT}
             onAdd={addFiles}
             onRemove={removeImage}
+            answerText={answerText}
+            onAnswerChange={setAnswerText}
           />
           <ModelPicker
             selectedModels={selectedModels}
@@ -700,7 +716,7 @@ export default function Home() {
             onRemove={removeModel}
             onGenerate={generate}
             generating={anyPending}
-            hasImages={images.length > 0}
+            hasImages={images.length > 0 || answerText.trim().length > 0}
             rubricInvalid={rubricInvalid}
             accent={ACCENT}
           />
@@ -851,6 +867,16 @@ export default function Home() {
                   result={activeDone}
                   accent={ACCENT}
                   rubric={currentRun?.rubric}
+                />
+              )}
+
+              {activeDone?.grade && (
+                <ChatPanel
+                  resultId={activeDone.id}
+                  modelKey={activeDone.modelKey}
+                  question={currentRun.question}
+                  grade={activeDone.grade}
+                  accent={ACCENT}
                 />
               )}
             </>

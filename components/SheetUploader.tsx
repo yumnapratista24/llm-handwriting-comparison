@@ -9,9 +9,27 @@ interface Props {
   accent: string;
   onAdd: (files: FileList | null) => void;
   onRemove: (id: string) => void;
+  answerText: string;
+  onAnswerChange: (value: string) => void;
 }
 
-export default function SheetUploader({ images, maxImages, accent, onAdd, onRemove }: Props) {
+const labelStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 10.5,
+  letterSpacing: ".13em",
+  color: "#a2967f",
+  fontWeight: 500,
+};
+
+export default function SheetUploader({
+  images,
+  maxImages,
+  accent,
+  onAdd,
+  onRemove,
+  answerText,
+  onAnswerChange,
+}: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const pick = () => fileRef.current?.click();
   const countColor = images.length >= maxImages ? "#a8472f" : "#9a8e79";
@@ -19,6 +37,41 @@ export default function SheetUploader({ images, maxImages, accent, onAdd, onRemo
 
   return (
     <div style={{ padding: 18, borderRight: "1px solid #efe7d6" }}>
+      {/* answer as text (optional alternative to image upload) */}
+      <div style={{ marginBottom: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <span style={labelStyle}>JAWABAN SISWA (TEKS)</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "#c4b89f" }}>
+            opsional
+          </span>
+        </div>
+        <textarea
+          value={answerText}
+          onChange={(e) => onAnswerChange(e.target.value)}
+          rows={3}
+          placeholder="Ketik atau tempel jawaban siswa. Jika diisi, jawaban ini dinilai langsung (tanpa gambar)."
+          style={{
+            width: "100%",
+            border: "1px solid #e3d9c5",
+            borderRadius: 8,
+            background: "#fbf7ee",
+            padding: "11px 12px",
+            fontSize: 13,
+            lineHeight: 1.5,
+            color: "#2c2620",
+            resize: "vertical",
+            minHeight: 70,
+          }}
+        />
+      </div>
+
       <div
         style={{
           display: "flex",
@@ -27,17 +80,7 @@ export default function SheetUploader({ images, maxImages, accent, onAdd, onRemo
           marginBottom: 11,
         }}
       >
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10.5,
-            letterSpacing: ".13em",
-            color: "#a2967f",
-            fontWeight: 500,
-          }}
-        >
-          LEMBAR JAWABAN
-        </span>
+        <span style={labelStyle}>LEMBAR JAWABAN</span>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: countColor }}>
           {images.length} / {maxImages}
         </span>

@@ -1,5 +1,7 @@
 import RubricBuilder from "@/components/RubricBuilder";
+import SourceMaterialUploader from "@/components/SourceMaterialUploader";
 import type { RubricCriterion } from "@/lib/prompt";
+import type { AttachedDocument } from "@/lib/models";
 
 const SUPPORT_LINE =
   "penjelasan · penjelasan + diagram · matematika · matematika + penjelasan";
@@ -9,10 +11,28 @@ interface Props {
   onChange: (value: string) => void;
   rubric: RubricCriterion[];
   onRubricChange: (rubric: RubricCriterion[]) => void;
+  documents: AttachedDocument[];
+  onDocumentsChange: (docs: AttachedDocument[]) => void;
   accent: string;
 }
 
-export default function QuestionInput({ value, onChange, rubric, onRubricChange, accent }: Props) {
+const labelStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 10.5,
+  letterSpacing: ".13em",
+  color: "#a2967f",
+  fontWeight: 500,
+};
+
+export default function QuestionInput({
+  value,
+  onChange,
+  rubric,
+  onRubricChange,
+  documents,
+  onDocumentsChange,
+  accent,
+}: Props) {
   return (
     <div style={{ padding: "18px 18px 16px", borderRight: "1px solid #efe7d6" }}>
       <div
@@ -23,17 +43,7 @@ export default function QuestionInput({ value, onChange, rubric, onRubricChange,
           marginBottom: 9,
         }}
       >
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10.5,
-            letterSpacing: ".13em",
-            color: "#a2967f",
-            fontWeight: 500,
-          }}
-        >
-          SOAL ESAI
-        </span>
+        <span style={labelStyle}>SOAL ESAI</span>
         <span
           style={{
             fontSize: 10.5,
@@ -66,7 +76,10 @@ export default function QuestionInput({ value, onChange, rubric, onRubricChange,
       <div style={{ marginTop: 9, fontSize: 11, color: "#9a8e79", lineHeight: 1.5 }}>
         Mendukung: {SUPPORT_LINE}
       </div>
+
       <RubricBuilder rubric={rubric} onChange={onRubricChange} accent={accent} />
+
+      <SourceMaterialUploader documents={documents} onChange={onDocumentsChange} accent={accent} />
     </div>
   );
 }

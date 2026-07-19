@@ -109,6 +109,12 @@ export interface GradePayload {
   improvements: string[];
 }
 
+export interface Citation {
+  chunk_id: string;
+  document: string;
+  snippet: string;
+}
+
 export interface GradeResponse extends GradePayload {
   usage: Usage;
   latency: number;
@@ -118,6 +124,7 @@ export interface GradeResponse extends GradePayload {
     awarded: number;
     reason: string;
   }>;
+  citations?: Citation[];
 }
 
 export interface UploadImage {
@@ -143,6 +150,14 @@ export interface RunResult {
 export interface RubricDef {
   criterion: string;
   max: number;
+}
+
+// A source document attached to a run (already ingested — chunked + embedded).
+// Session-only: held in client state, sent as documentIds on grade; not persisted.
+export interface AttachedDocument {
+  id: string;
+  filename: string;
+  chunkCount: number;
 }
 
 export interface Run {
