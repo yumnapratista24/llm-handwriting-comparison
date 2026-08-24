@@ -1,6 +1,6 @@
 // Pinecone + OpenAI embeddings, wired through LangChain.
 // Server-only: PINECONE_API_KEY / PINECONE_INDEX / OPENAI_API_KEY never reach the client.
-// Grading still goes through the SumoPod proxy; only embeddings hit OpenAI directly.
+// Grading still goes through the OpenRouter proxy; only embeddings hit OpenAI directly.
 import { Pinecone } from "@pinecone-database/pinecone";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";

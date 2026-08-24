@@ -33,8 +33,8 @@ const toPromptChunk = (c: RetrievedChunk): PromptChunk => ({
 });
 
 export async function POST(request: Request) {
-  const apiKey = process.env.SUMOPOD_API_KEY;
-  if (!apiKey) return err("SUMOPOD_API_KEY belum diset di .env.local", 500);
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di .env.local", 500);
 
   let body: GradeRequest;
   try {
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
   }
   const promptChunks = material.map(toPromptChunk);
 
-  const client = new OpenAI({ apiKey, baseURL: "https://ai.sumopod.com/v1" });
+  const client = new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
 
   // Text answer → grade the text directly (no images). Otherwise send images.
   const imageContent = answer
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
   let res;
   try {
     res = await client.chat.completions.create({
-      model: model.sumopodId,
+      model: model.openrouterId,
       messages: [
         { role: "system", content: systemMessage },
         {
@@ -105,14 +105,14 @@ export async function POST(request: Request) {
       tool_choice: { type: "function", function: { name: "grade_answer" } },
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Panggilan ke SumoPod gagal";
-    console.error("[grade] SumoPod error:", message);
+    const message = e instanceof Error ? e.message : "Panggilan ke OpenRouter gagal";
+    console.error("[grade] OpenRouter error:", message);
     const status = /\b4\d\d\b/.exec(message)?.[0];
     return err(message, status ? Number(status) : 502);
   }
   const latency = +((performance.now() - start) / 1000).toFixed(1);
 
-  console.log("[grade] model:", model.sumopodId, "usage:", JSON.stringify(res.usage));
+  console.log("[grade] model:", model.openrouterId, "usage:", JSON.stringify(res.usage));
 
   const toolCall = res.choices?.[0]?.message?.tool_calls?.[0];
   const args = toolCall?.type === "function" ? toolCall.function.arguments : undefined;

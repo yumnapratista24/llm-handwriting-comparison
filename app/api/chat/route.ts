@@ -21,8 +21,8 @@ function err(message: string, status: number) {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.SUMOPOD_API_KEY;
-  if (!apiKey) return err("SUMOPOD_API_KEY belum diset di .env.local", 500);
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di .env.local", 500);
 
   let body: ChatRequest;
   try {
@@ -51,17 +51,17 @@ export async function POST(request: Request) {
     ? history
     : [{ role: "user" as const, content: "Mulai diskusi." }];
 
-  const client = new OpenAI({ apiKey, baseURL: "https://ai.sumopod.com/v1" });
+  const client = new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
 
   let res;
   try {
     res = await client.chat.completions.create({
-      model: model.sumopodId,
+      model: model.openrouterId,
       messages: [{ role: "system", content: systemMessage }, ...chatMessages],
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Panggilan ke SumoPod gagal";
-    console.error("[chat] SumoPod error:", message);
+    const message = e instanceof Error ? e.message : "Panggilan ke OpenRouter gagal";
+    console.error("[chat] OpenRouter error:", message);
     const status = /\b4\d\d\b/.exec(message)?.[0];
     return err(message, status ? Number(status) : 502);
   }

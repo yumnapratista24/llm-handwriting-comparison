@@ -28,8 +28,8 @@ type ContentPart =
   | { type: "image_url"; image_url: { url: string } };
 
 export async function POST(request: Request) {
-  const apiKey = process.env.SUMOPOD_API_KEY;
-  if (!apiKey) return err("SUMOPOD_API_KEY belum diset di .env.local", 500);
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di .env.local", 500);
 
   const model = getModel(EXTRACTION_MODEL_KEY);
   if (!model) return err("Model ekstraksi tidak ditemukan", 500);
@@ -72,12 +72,12 @@ export async function POST(request: Request) {
     return err("Format tidak didukung — gunakan PDF, DOC, DOCX, PNG, JPG, atau WEBP", 400);
   }
 
-  const client = new OpenAI({ apiKey, baseURL: "https://ai.sumopod.com/v1" });
+  const client = new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
 
   let res;
   try {
     res = await client.chat.completions.create({
-      model: model.sumopodId,
+      model: model.openrouterId,
       messages: [
         { role: "system", content: RUBRIC_EXTRACTION_INSTRUCTIONS },
         {
@@ -92,8 +92,8 @@ export async function POST(request: Request) {
       tool_choice: { type: "function", function: { name: "extract_rubric" } },
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Panggilan ke SumoPod gagal";
-    console.error("[rubric-extract] SumoPod error:", message);
+    const message = e instanceof Error ? e.message : "Panggilan ke OpenRouter gagal";
+    console.error("[rubric-extract] OpenRouter error:", message);
     const status = /\b4\d\d\b/.exec(message)?.[0];
     return err(message, status ? Number(status) : 502);
   }

@@ -5,7 +5,7 @@ export type VerdictKind = "ok" | "partial" | "bad";
 export interface ModelInfo {
   key: string;
   label: string;
-  sumopodId: string;
+  openrouterId: string;
   vendor: string;
   dot: string;
 }
@@ -14,49 +14,49 @@ export const MODELS: ModelInfo[] = [
   {
     key: "gpt4o",
     label: "GPT-4o",
-    sumopodId: "gpt-4o",
+    openrouterId: "openai/gpt-4o",
     vendor: "OpenAI",
     dot: "#5a8f7b",
   },
   {
     key: "gpt41",
     label: "GPT-4.1",
-    sumopodId: "gpt-4.1",
+    openrouterId: "openai/gpt-4.1",
     vendor: "OpenAI",
     dot: "#5a8f7b",
   },
   {
     key: "sonnet",
     label: "Claude Sonnet 4",
-    sumopodId: "claude-sonnet-4-6",
+    openrouterId: "anthropic/claude-sonnet-4.6",
     vendor: "Anthropic",
     dot: "#c08552",
   },
   {
     key: "opus",
     label: "Claude Opus 4",
-    sumopodId: "claude-opus-4-7",
+    openrouterId: "anthropic/claude-opus-4.7",
     vendor: "Anthropic",
     dot: "#b5552f",
   },
   {
     key: "gemini25",
     label: "Gemini 2.5 Flash",
-    sumopodId: "gemini/gemini-2.5-flash",
+    openrouterId: "google/gemini-2.5-flash",
     vendor: "Google",
     dot: "#6b8fc7",
   },
   {
     key: "gemini35",
     label: "Gemini 3.5 Flash",
-    sumopodId: "gemini/gemini-3.5-flash",
+    openrouterId: "google/gemini-3.5-flash",
     vendor: "Google",
     dot: "#6b8fc7",
   },
   {
     key: "qwenplus",
     label: "Qwen3.7 Plus",
-    sumopodId: "qwen3.7-plus",
+    openrouterId: "qwen/qwen3.7-plus",
     vendor: "Alibaba",
     dot: "#9a78b8",
   },
