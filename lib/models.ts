@@ -60,6 +60,62 @@ export const MODELS: ModelInfo[] = [
     vendor: "Alibaba",
     dot: "#9a78b8",
   },
+  {
+    key: "qwen3vl235",
+    label: "Qwen3-VL 235B",
+    openrouterId: "qwen/qwen3-vl-235b-a22b-instruct",
+    vendor: "Alibaba",
+    dot: "#9a78b8",
+  },
+  {
+    key: "qwen3vl30",
+    label: "Qwen3-VL 30B",
+    openrouterId: "qwen/qwen3-vl-30b-a3b-instruct",
+    vendor: "Alibaba",
+    dot: "#9a78b8",
+  },
+  {
+    key: "gemini25pro",
+    label: "Gemini 2.5 Pro",
+    openrouterId: "google/gemini-2.5-pro",
+    vendor: "Google",
+    dot: "#6b8fc7",
+  },
+  {
+    key: "gemini25lite",
+    label: "Gemini 2.5 Flash Lite",
+    openrouterId: "google/gemini-2.5-flash-lite",
+    vendor: "Google",
+    dot: "#6b8fc7",
+  },
+  {
+    key: "gemini37",
+    label: "Gemini 3.7 Flash",
+    openrouterId: "google/gemini-3.7-flash",
+    vendor: "Google",
+    dot: "#6b8fc7",
+  },
+  {
+    key: "mistralsmall",
+    label: "Mistral Small 3.2",
+    openrouterId: "mistralai/mistral-small-3.2-24b-instruct",
+    vendor: "Mistral AI",
+    dot: "#caa23c",
+  },
+  {
+    key: "glm46v",
+    label: "GLM-4.6V",
+    openrouterId: "z-ai/glm-4.6v",
+    vendor: "Zhipu AI",
+    dot: "#4f9d8f",
+  },
+  {
+    key: "gptluna",
+    label: "GPT-5.6 Luna",
+    openrouterId: "openai/gpt-5.6-luna",
+    vendor: "OpenAI",
+    dot: "#5a8f7b",
+  },
 ];
 
 export function getModel(key: string): ModelInfo | undefined {
