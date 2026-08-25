@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { type Run } from "@/lib/models";
-import { getModel } from "@/lib/models";
+import type { BatchRunSummary } from "@/lib/db";
 
 interface Props {
   open: boolean;
-  runs: Run[];
+  runs: BatchRunSummary[];
   currentRunId: string | null;
   onOpen: (runId: string) => void;
   onRemove: (runId: string) => void;
@@ -32,7 +31,7 @@ export default function HistoryDrawer({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  function startEdit(e: React.MouseEvent, run: Run) {
+  function startEdit(e: React.MouseEvent, run: BatchRunSummary) {
     e.stopPropagation();
     setEditingId(run.id);
     setEditValue(run.title ?? "");
@@ -139,9 +138,8 @@ export default function HistoryDrawer({
             <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
               {runs.map((run) => {
                 const isCurrent = run.id === currentRunId;
-                const doneCount = run.results.filter((r) => r.status === "done").length;
-                const modelKeys = [...new Set(run.results.map((r) => r.modelKey))];
                 const isEditing = editingId === run.id;
+                const notGenerated = run.resultCount === 0;
 
                 return (
                   <div
@@ -289,45 +287,64 @@ export default function HistoryDrawer({
                         overflow: "hidden",
                       } as React.CSSProperties}
                     >
-                      {run.question}
+                      {run.question || <em style={{ color: "#c4b89f" }}>Soal belum diisi</em>}
                     </div>
 
-                    {/* model chips */}
+                    {/* stats chip */}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      {modelKeys.map((key) => {
-                        const m = getModel(key);
-                        if (!m) return null;
-                        return (
-                          <span
-                            key={key}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 5,
-                              background: "#f3ecdb",
-                              borderRadius: 20,
-                              padding: "3px 8px",
-                              fontSize: 10.5,
-                              color: "#5a5142",
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: "50%",
-                                background: m.dot,
-                              }}
-                            />
-                            {m.label}
-                          </span>
-                        );
-                      })}
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 5,
+                          background: "#f3ecdb",
+                          borderRadius: 20,
+                          padding: "3px 8px",
+                          fontSize: 10.5,
+                          color: "#5a5142",
+                        }}
+                      >
+                        {run.answerCount} jawaban
+                      </span>
+                      {run.errorCount > 0 && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                            background: "#f4e2dc",
+                            borderRadius: 20,
+                            padding: "3px 8px",
+                            fontSize: 10.5,
+                            color: "#9a4632",
+                          }}
+                        >
+                          {run.errorCount} gagal
+                        </span>
+                      )}
+                      {(run.queuedCount > 0 || run.runningCount > 0) && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                            background: "#f6ecd5",
+                            borderRadius: 20,
+                            padding: "3px 8px",
+                            fontSize: 10.5,
+                            color: "#8a661f",
+                          }}
+                        >
+                          {run.queuedCount + run.runningCount} berjalan
+                        </span>
+                      )}
                     </div>
 
                     {/* summary */}
                     <div style={{ marginTop: 9, fontSize: 10.5, color: "#a2967f" }}>
-                      {doneCount} / {run.results.length} hasil selesai
+                      {notGenerated
+                        ? "Draf — belum dinilai"
+                        : `${run.doneCount} / ${run.resultCount} hasil selesai`}
                     </div>
                   </div>
                 );

@@ -192,16 +192,58 @@ export interface UploadImage {
 
 // ── v2 run/result model ─────────────────────────────────────────────────────
 
-export type ResultStatus = "pending" | "done";
+// Result lifecycle status.
+//  - Batch jobs (grading_results.status column): "queued" | "running" | "done" | "error"
+//  - Legacy sync UI (client-only, never persisted): "pending" while a model is
+//    in-flight. Kept in the union so the existing sync flow keeps compiling.
+export type ResultStatus = "pending" | "queued" | "running" | "done" | "error";
 
 export interface RunResult {
   id: string;
   runId: string;
+  // null for legacy sync rows; set to the graded answer for batch rows.
+  answerId?: string | null;
   modelKey: string;
   status: ResultStatus;
+  // Set when status === "error" (batch) — the failure message.
+  error?: string | null;
+  // Batch job timestamps (ISO strings) — used to detect jobs stuck in
+  // queued/running (e.g. dead-lettered) so the UI can offer a retry.
+  createdAt?: string | null;
+  claimedAt?: string | null;
   // Populated when status === "done"
   grade?: GradeResponse;
   verdictKind?: VerdictKind;
+}
+
+// ── batch answers ───────────────────────────────────────────────────────────
+
+export type AnswerKind = "text" | "images" | "pdf";
+export type AnswerStatus = "ready" | "error";
+
+// One uploaded binary backing an answer (grading_answer_files row).
+export interface AnswerFileRef {
+  id: string;
+  answerId: string;
+  position: number;
+  storagePath: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+}
+
+// One student answer within a batch run (grading_answers row + its files).
+export interface AnswerEntry {
+  id: string;
+  runId: string;
+  position: number;
+  studentLabel: string;
+  kind: AnswerKind;
+  answerText?: string | null;
+  extractionNote?: string | null;
+  isScanned: boolean;
+  status: AnswerStatus;
+  error?: string | null;
+  files: AnswerFileRef[];
 }
 
 export interface RubricLevelCell {
@@ -240,4 +282,7 @@ export interface Run {
   title?: string;
   rubric?: RubricDef[];
   results: RunResult[];
+  // Number of student answers in a batch run (grading_runs.answer_count).
+  // Legacy sync runs default to 1.
+  answerCount?: number;
 }

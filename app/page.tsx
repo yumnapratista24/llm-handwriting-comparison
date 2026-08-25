@@ -1,355 +1,322 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ACCENTS,
-  deriveVerdict,
   rubricMaxScore,
+  type AnswerEntry,
   type AttachedDocument,
-  type GradeResponse,
   type Run,
   type RubricDef,
   type RunResult,
-  type UploadImage,
 } from "@/lib/models";
 import { DEFAULT_PROMPT, type RubricCriterion } from "@/lib/prompt";
-import { getSupabase } from "@/lib/supabase";
+import {
+  createDraftRun,
+  deleteResult,
+  deleteRun,
+  fetchBatchResults,
+  getRun,
+  listAnswersWithFiles,
+  loadBatchHistory,
+  loadLegacyRubricBreakdown,
+  loadRubricForRun,
+  saveRubric,
+  updateAnswer,
+  updateRunQuestion,
+  updateRunSystemPrompt,
+  updateRunTitle,
+  type BatchRunSummary,
+} from "@/lib/db";
 import QuestionInput from "@/components/QuestionInput";
 import RubricBuilder from "@/components/RubricBuilder";
-import SheetUploader from "@/components/SheetUploader";
+import AnswersManager, {
+  type AnswerEntryState,
+  type AnswerFileState,
+} from "@/components/AnswersManager";
 import ModelPicker from "@/components/ModelPicker";
 import ResultCards from "@/components/ResultCards";
 import ResultDetail from "@/components/ResultDetail";
-import ChatPanel from "@/components/ChatPanel";
+import ChatLauncher from "@/components/ChatLauncher";
 import PromptDrawer from "@/components/PromptDrawer";
 import HistoryDrawer from "@/components/HistoryDrawer";
+import BatchResultsDialog from "@/components/BatchResultsDialog";
 
-const MAX_IMAGES = 5;
 const ACCENT = ACCENTS.Terracotta;
 
 const DEFAULT_QUESTION =
   "Jelaskan bagaimana KPI mempengaruhi kinerja seseorang di sebuah organisasi? Jelaskan menggunakan metode SMART (Specific, Measurable, Achievable, Relevant, Time-bound).";
 
-// ── Supabase helpers ────────────────────────────────────────────────────────
+const DEFAULT_MODELS = ["gpt4o", "gemini25"];
 
-function db() {
-  try {
-    return getSupabase();
-  } catch {
-    return null;
-  }
+// Batch results are a dialog over compose (BatchResultsDialog), not a mode —
+// only single-answer runs still swap the page view.
+type ViewMode = "compose" | "single";
+
+// A storage object path is `.../{uuid}-{sanitized-filename}` — strip the
+// leading uuid so the entry card shows a readable original-ish filename.
+function fileDisplayName(storagePath: string): string {
+  const base = storagePath.split("/").pop() ?? storagePath;
+  const uuidPrefix = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i;
+  return base.replace(uuidPrefix, "") || base;
 }
 
-async function dbSaveRun(run: Run) {
-  const { error } = await db()!
-    .from("grading_runs")
-    .insert({
-      id: run.id,
-      question: run.question,
-      image_count: run.imageCount,
-      system_prompt: run.systemPrompt,
-      title: run.title ?? null,
-    });
-  if (error) console.error("[db] saveRun:", error.message);
-}
-
-async function dbSaveRubric(
-  runId: string,
-  rubric: RubricDef[],
-): Promise<Array<{ id: string; position: number }>> {
-  if (!rubric.length) return [];
-  const rows = rubric.map((r, i) => ({
-    run_id: runId,
-    position: i,
-    criterion: r.criterion,
-    description: r.description ?? null,
+function toAnswerEntryState(a: AnswerEntry): AnswerEntryState {
+  const files: AnswerFileState[] = a.files.map((f) => ({
+    id: f.id,
+    name: fileDisplayName(f.storagePath),
+    storagePath: f.storagePath,
+    mimeType: f.mimeType,
+    uploadStatus: "done",
   }));
-  const { data, error } = await db()!
-    .from("grading_rubric")
-    .insert(rows)
-    .select("id, position");
-  if (error) {
-    console.error("[db] saveRubric:", error.message);
-    return [];
-  }
-  const rubricRows = ((data ?? []) as Array<{ id: string; position: number }>).sort(
-    (a, b) => a.position - b.position,
-  );
-
-  const levelRows = rubricRows.flatMap((rr, i) =>
-    rubric[i].cells.map((c) => ({
-      rubric_id: rr.id,
-      level_value: c.level,
-      description: c.description,
-    })),
-  );
-  if (levelRows.length) {
-    const { error: levelErr } = await db()!.from("grading_rubric_levels").insert(levelRows);
-    if (levelErr) console.error("[db] saveRubricLevels:", levelErr.message);
-  }
-
-  return rubricRows;
+  return {
+    id: a.id,
+    position: a.position,
+    studentLabel: a.studentLabel,
+    kind: a.kind,
+    answerText: a.answerText ?? "",
+    extractionNote: a.extractionNote,
+    isScanned: a.isScanned,
+    status: a.status,
+    error: a.error,
+    extracting: false,
+    files,
+  };
 }
 
-async function dbSaveRubricScores(
-  resultId: string,
-  rubricRows: Array<{ id: string; position: number }>,
-  breakdown: GradeResponse["rubric_breakdown"],
-) {
-  if (!breakdown?.length || !rubricRows.length) return;
-  const rows = rubricRows.map((rb, i) => ({
-    rubric_id: rb.id,
-    result_id: resultId,
-    awarded_score: breakdown[i]?.awarded ?? 0,
-    reason: breakdown[i]?.reason ?? "",
-  }));
-  const { error } = await db()!.from("grading_rubric_scores").insert(rows);
-  if (error) console.error("[db] saveRubricScores:", error.message);
+function timeStr(ts: number) {
+  const d = new Date(ts);
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
-
-async function dbUpdateRunTitle(runId: string, title: string) {
-  const { error } = await db()!
-    .from("grading_runs")
-    .update({ title: title.trim() || null })
-    .eq("id", runId);
-  if (error) console.error("[db] updateTitle:", error.message);
-}
-
-async function dbSaveResult(r: RunResult) {
-  if (r.status !== "done" || !r.grade) return;
-  const { error } = await db()!.from("grading_results").insert({
-    id: r.id,
-    run_id: r.runId,
-    model_key: r.modelKey,
-    score: r.grade.score,
-    extracted_text: r.grade.extracted_text,
-    extraction_note: r.grade.extraction_note,
-    feedback_text: r.grade.feedback_text,
-    strengths: r.grade.strengths,
-    improvements: r.grade.improvements,
-    prompt_tokens: r.grade.usage.prompt_tokens,
-    completion_tokens: r.grade.usage.completion_tokens,
-    total_tokens: r.grade.usage.total_tokens,
-    latency: r.grade.latency,
-  });
-  if (error) console.error("[db] saveResult:", error.message);
-}
-
-async function dbDeleteRun(runId: string) {
-  const { error } = await db()!.from("grading_runs").delete().eq("id", runId);
-  if (error) console.error("[db] deleteRun:", error.message);
-}
-
-async function dbDeleteResult(resultId: string) {
-  const { error } = await db()!
-    .from("grading_results")
-    .delete()
-    .eq("id", resultId);
-  if (error) console.error("[db] deleteResult:", error.message);
-}
-
-async function loadRunsFromDb(): Promise<Run[]> {
-  const client = db();
-  if (!client) return [];
-
-  const { data: runRows, error: runErr } = await client
-    .from("grading_runs")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (runErr || !runRows) {
-    if (runErr) console.error("[db] loadRuns:", runErr.message);
-    return [];
-  }
-
-  const { data: resultRows, error: resultErr } = await client
-    .from("grading_results")
-    .select("*");
-  if (resultErr) console.error("[db] loadResults:", resultErr.message);
-
-  const { data: rubricDefRows, error: rubricDefErr } = await client
-    .from("grading_rubric")
-    .select("*");
-  if (rubricDefErr) console.error("[db] loadRubric:", rubricDefErr.message);
-
-  const { data: rubricLevelRows, error: rubricLevelErr } = await client
-    .from("grading_rubric_levels")
-    .select("*");
-  if (rubricLevelErr) console.error("[db] loadRubricLevels:", rubricLevelErr.message);
-
-  const { data: rubricScoreRows, error: rubricScoreErr } = await client
-    .from("grading_rubric_scores")
-    .select("*");
-  if (rubricScoreErr)
-    console.error("[db] loadRubricScores:", rubricScoreErr.message);
-
-  return runRows.map((row: Record<string, unknown>) => {
-    // Rubric definition for this run, ordered by position
-    const rubricDefs = (rubricDefRows ?? [])
-      .filter((rd: Record<string, unknown>) => rd.run_id === row.id)
-      .sort(
-        (a: Record<string, unknown>, b: Record<string, unknown>) =>
-          (a.position as number) - (b.position as number),
-      );
-
-    const cellsFor = (rubricId: unknown) =>
-      (rubricLevelRows ?? [])
-        .filter((lv: Record<string, unknown>) => lv.rubric_id === rubricId)
-        .sort(
-          (a: Record<string, unknown>, b: Record<string, unknown>) =>
-            (a.level_value as number) - (b.level_value as number),
-        )
-        .map((lv: Record<string, unknown>) => ({
-          level: lv.level_value as number,
-          description: lv.description as string,
-        }));
-
-    const rubric: RubricDef[] = rubricDefs.map(
-      (rd: Record<string, unknown>) => ({
-        criterion: rd.criterion as string,
-        description: (rd.description as string | null) ?? undefined,
-        cells: cellsFor(rd.id),
-      }),
-    );
-
-    const maxFor = (rd: Record<string, unknown>) => {
-      const cells = cellsFor(rd.id);
-      return cells.length ? Math.max(...cells.map((c) => c.level)) : 0;
-    };
-
-    const runMaxScore = rubric.length ? rubricMaxScore(rubric) : 100;
-
-    const results: RunResult[] = (resultRows ?? [])
-      .filter((r: Record<string, unknown>) => r.run_id === row.id)
-      .map((r: Record<string, unknown>) => {
-        // Join rubric definitions with per-model scores for this result
-        const breakdown = rubricDefs
-          .map((rd: Record<string, unknown>) => {
-            const score = (rubricScoreRows ?? []).find(
-              (s: Record<string, unknown>) =>
-                s.rubric_id === rd.id && s.result_id === r.id,
-            ) as Record<string, unknown> | undefined;
-            return score
-              ? {
-                  criterion: rd.criterion as string,
-                  max: maxFor(rd),
-                  awarded: score.awarded_score as number,
-                  reason: score.reason as string,
-                }
-              : null;
-          })
-          .filter(Boolean) as Array<{
-          criterion: string;
-          max: number;
-          awarded: number;
-          reason: string;
-        }>;
-
-        return {
-          id: r.id as string,
-          runId: r.run_id as string,
-          modelKey: r.model_key as string,
-          status: "done" as const,
-          grade: {
-            score: r.score as number,
-            extracted_text: r.extracted_text as string,
-            extraction_note: r.extraction_note as string,
-            feedback_text: r.feedback_text as string,
-            strengths: (r.strengths as string[]) ?? [],
-            improvements: (r.improvements as string[]) ?? [],
-            usage: {
-              prompt_tokens: r.prompt_tokens as number | null,
-              completion_tokens: r.completion_tokens as number | null,
-              total_tokens: r.total_tokens as number | null,
-            },
-            latency: r.latency as number,
-            rubric_breakdown: breakdown.length ? breakdown : undefined,
-          },
-          verdictKind: deriveVerdict(r.score as number, runMaxScore),
-        };
-      });
-
-    return {
-      id: row.id as string,
-      ts: new Date(row.created_at as string).getTime(),
-      question: row.question as string,
-      imageCount: row.image_count as number,
-      systemPrompt: row.system_prompt as string,
-      title: (row.title as string | null) ?? undefined,
-      rubric: rubric.length ? rubric : undefined,
-      results,
-    };
-  });
-}
-
-// ── Component ───────────────────────────────────────────────────────────────
 
 export default function Home() {
   const [question, setQuestion] = useState(DEFAULT_QUESTION);
-  const [images, setImages] = useState<UploadImage[]>([]);
-  const [selectedModels, setSelectedModels] = useState<string[]>([
-    "gpt4o",
-    "gemini25",
-  ]);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_PROMPT);
   const [rubric, setRubric] = useState<RubricCriterion[]>([]);
-  const [answerText, setAnswerText] = useState("");
   const [documents, setDocuments] = useState<AttachedDocument[]>([]);
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>(DEFAULT_MODELS);
+  const [answers, setAnswers] = useState<AnswerEntryState[]>([]);
+
+  const [mode, setMode] = useState<ViewMode>("compose");
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [singleRun, setSingleRun] = useState<Run | null>(null);
   const [activeResultId, setActiveResultId] = useState<string | null>(null);
+
+  const [history, setHistory] = useState<BatchRunSummary[]>([]);
   const [drawer, setDrawer] = useState<"history" | "prompt" | null>(null);
 
-  // Load history on mount (list only — do not auto-select a run)
-  useEffect(() => {
-    loadRunsFromDb().then((loaded) => {
-      if (loaded.length > 0) {
-        setRuns(loaded);
-      }
-    });
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [loadingRun, setLoadingRun] = useState(false);
+
+  // Draft run creation is deduped across concurrent callers (e.g. dropping 10
+  // files at once) by caching the in-flight promise here.
+  const draftPromiseRef = useRef<Promise<string> | null>(null);
+
+  // Bumped on every navigation (open/close a run). Each loader captures the
+  // sequence number it was called with and checks it's still current right
+  // before committing state, so a slow, superseded fetch (e.g. the user
+  // clicked a second history row before the first one resolved) can't clobber
+  // whatever the user has since navigated to.
+  const loadSeqRef = useRef(0);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      setHistory(await loadBatchHistory());
+    } catch (e) {
+      console.error("[history] load:", e);
+    }
   }, []);
 
-  // ── image handlers ──────────────────────────────────────────────────────
+  useEffect(() => {
+    loadBatchHistory()
+      .then(setHistory)
+      .catch((e) => console.error("[history] load:", e));
+  }, []);
 
-  const addFiles = useCallback(
-    (fileList: FileList | null) => {
-      const room = MAX_IMAGES - images.length;
-      const files = Array.from(fileList ?? [])
-        .filter((f) => f.type.startsWith("image/"))
-        .slice(0, Math.max(0, room));
-      files.forEach((f) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setImages((prev) => [
-            ...prev,
-            {
-              id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              label: f.name,
-              src: reader.result as string,
-            },
-          ]);
-        };
-        reader.readAsDataURL(f);
-      });
+  const ensureDraftRun = useCallback(async (): Promise<string> => {
+    if (currentRunId) return currentRunId;
+    if (!draftPromiseRef.current) {
+      draftPromiseRef.current = createDraftRun({ question, systemPrompt })
+        .then((id) => {
+          setCurrentRunId(id);
+          return id;
+        })
+        .catch((e) => {
+          draftPromiseRef.current = null; // allow retry on the next call
+          throw e;
+        });
+    }
+    return draftPromiseRef.current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRunId]);
+
+  const resetToBlankDraft = useCallback(() => {
+    loadSeqRef.current += 1; // invalidate any load still in flight
+    draftPromiseRef.current = null;
+    setCurrentRunId(null);
+    setMode("compose");
+    setDashboardOpen(false);
+    setQuestion(DEFAULT_QUESTION);
+    setSystemPrompt(DEFAULT_PROMPT);
+    setRubric([]);
+    setAnswers([]);
+    setDocuments([]);
+    setSelectedModels(DEFAULT_MODELS);
+    setSingleRun(null);
+    setActiveResultId(null);
+    setGenerateError(null);
+  }, []);
+
+  // ── loading a run's detail view (from history, or right after Generate) ────
+
+  const loadDraftIntoCompose = useCallback(async (runId: string, seq: number) => {
+    setLoadingRun(true);
+    try {
+      const [run, rubricDefs, answerRows] = await Promise.all([
+        getRun(runId),
+        loadRubricForRun(runId),
+        listAnswersWithFiles(runId),
+      ]);
+      if (loadSeqRef.current !== seq) return; // superseded by a newer navigation
+      if (!run) {
+        resetToBlankDraft();
+        return;
+      }
+      draftPromiseRef.current = Promise.resolve(runId);
+      setCurrentRunId(runId);
+      setQuestion(run.question || DEFAULT_QUESTION);
+      setSystemPrompt(run.systemPrompt || DEFAULT_PROMPT);
+      setRubric(rubricDefs);
+      setAnswers(answerRows.map(toAnswerEntryState));
+      setDocuments([]);
+      setMode("compose");
+    } catch (e) {
+      console.error("[run] loadDraft:", e);
+    } finally {
+      if (loadSeqRef.current === seq) setLoadingRun(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadSingleRun = useCallback(async (runId: string, answerCountHint: number | undefined, seq: number, keepDocuments = false) => {
+    setLoadingRun(true);
+    try {
+      const [run, rubricDefs, answerRows] = await Promise.all([
+        getRun(runId),
+        loadRubricForRun(runId),
+        listAnswersWithFiles(runId),
+      ]);
+      if (loadSeqRef.current !== seq) return; // superseded by a newer navigation
+      if (!run) {
+        resetToBlankDraft();
+        return;
+      }
+      const scoreMax = rubricDefs.length ? rubricMaxScore(rubricDefs) : 100;
+      let results: RunResult[] = await fetchBatchResults(runId, scoreMax);
+
+      // Pure legacy rows (pre-batch sync grades) never got rubric_breakdown
+      // written to the jsonb column — fall back to the old join table only
+      // for those. Batch rows already carry it directly.
+      const allLegacy = results.length > 0 && results.every((r) => !r.answerId);
+      if (rubricDefs.length && allLegacy) {
+        try {
+          const legacyMap = await loadLegacyRubricBreakdown(runId, rubricDefs);
+          if (legacyMap.size) {
+            results = results.map((r) => {
+              if (r.grade && !r.grade.rubric_breakdown) {
+                const bd = legacyMap.get(r.id);
+                if (bd) return { ...r, grade: { ...r.grade, rubric_breakdown: bd } };
+              }
+              return r;
+            });
+          }
+        } catch (e) {
+          console.error("[run] legacyRubricBreakdown:", e);
+        }
+      }
+      if (loadSeqRef.current !== seq) return; // superseded while fetching results
+
+      const totalFiles = answerRows.reduce((sum, a) => sum + a.files.length, 0);
+      const built: Run = {
+        id: runId,
+        ts: run.ts,
+        question: run.question,
+        imageCount: totalFiles,
+        systemPrompt: run.systemPrompt,
+        title: run.title,
+        rubric: rubricDefs.length ? rubricDefs : undefined,
+        results,
+        answerCount: answerCountHint ?? run.answerCount,
+      };
+      draftPromiseRef.current = Promise.resolve(runId);
+      setCurrentRunId(runId);
+      setQuestion(run.question);
+      setSystemPrompt(run.systemPrompt);
+      setRubric(rubricDefs);
+      if (!keepDocuments) setDocuments([]);
+      setSingleRun(built);
+      const doneResult = results.find((r) => r.status === "done") ?? results[0] ?? null;
+      setActiveResultId(doneResult?.id ?? null);
+      setMode("single");
+    } catch (e) {
+      console.error("[run] loadSingle:", e);
+    } finally {
+      if (loadSeqRef.current === seq) setLoadingRun(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openRun = useCallback(
+    async (runId: string) => {
+      setDrawer(null);
+      if (runId === currentRunId) {
+        resetToBlankDraft();
+        return;
+      }
+      const seq = (loadSeqRef.current += 1);
+      setDashboardOpen(false);
+      const summary = history.find((h) => h.id === runId);
+      if (!summary || summary.resultCount === 0) {
+        await loadDraftIntoCompose(runId, seq);
+      } else if (summary.answerCount <= 1) {
+        await loadSingleRun(runId, summary.answerCount, seq);
+      } else {
+        // Batch run: hydrate compose with its question/rubric/answers, then
+        // open the results table as a dialog on top of it.
+        await loadDraftIntoCompose(runId, seq);
+        if (loadSeqRef.current === seq) setDashboardOpen(true);
+      }
     },
-    [images.length],
+    [currentRunId, history, loadDraftIntoCompose, loadSingleRun, resetToBlankDraft],
   );
 
-  const removeImage = (id: string) =>
-    setImages((prev) => prev.filter((im) => im.id !== id));
+  const removeRun = useCallback(
+    async (runId: string) => {
+      setHistory((prev) => prev.filter((r) => r.id !== runId));
+      if (currentRunId === runId) resetToBlankDraft();
+      await deleteRun(runId).catch((e) => console.error("[run] delete:", e));
+    },
+    [currentRunId, resetToBlankDraft],
+  );
+
+  const renameRun = useCallback((runId: string, title: string) => {
+    setHistory((prev) =>
+      prev.map((r) => (r.id === runId ? { ...r, title: title.trim() || undefined } : r)),
+    );
+    updateRunTitle(runId, title).catch((e) => console.error("[run] rename:", e));
+  }, []);
 
   // ── model selection ─────────────────────────────────────────────────────
 
   const addModel = (key: string) =>
     setSelectedModels((prev) => (prev.includes(key) ? prev : [...prev, key]));
-
   const removeModel = (key: string) =>
     setSelectedModels((prev) => prev.filter((k) => k !== key));
 
-  // ── generate ────────────────────────────────────────────────────────────
-
-  const currentRun = runs.find((r) => r.id === currentRunId) ?? null;
-  const anyPending =
-    currentRun?.results.some((r) => r.status === "pending") ?? false;
+  // ── validation ───────────────────────────────────────────────────────────
 
   const rubricLevels = rubric[0]?.cells.map((c) => c.level) ?? [];
   const rubricLevelsDuplicate = new Set(rubricLevels).size !== rubricLevels.length;
@@ -359,219 +326,157 @@ export default function Home() {
       rubricLevels.length < 2 ||
       rubricLevelsDuplicate);
 
-  const answer = answerText.trim();
+  const answersBusy = answers.some(
+    (a) =>
+      a.preparing || a.extracting || a.files.some((f) => f.uploadStatus === "uploading"),
+  );
+
+  // ── generate (submit the batch) ─────────────────────────────────────────
 
   const generate = async () => {
-    if (
-      anyPending ||
-      (images.length === 0 && !answer) ||
-      selectedModels.length === 0 ||
-      rubricInvalid
-    )
-      return;
+    if (!currentRunId || generating) return;
+    if (answers.length === 0 || answersBusy || selectedModels.length === 0 || rubricInvalid) return;
 
-    const runId = crypto.randomUUID();
-    const pendingResults: RunResult[] = selectedModels.map((key) => ({
-      id: crypto.randomUUID(),
-      runId,
-      modelKey: key,
-      status: "pending",
-    }));
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      await updateRunQuestion(currentRunId, question);
+      await updateRunSystemPrompt(currentRunId, systemPrompt);
+      const activeRubric: RubricDef[] = rubric.length ? rubric : [];
+      await saveRubric(currentRunId, activeRubric);
+      // Typed answers only persist on textarea blur, and the Generate click's
+      // blur commit races this request — flush them all before the server
+      // reads grading_answers to build payloads.
+      await Promise.all(
+        answers
+          .filter((a) => a.kind === "text")
+          .map((a) => updateAnswer(a.id, { answerText: a.answerText })),
+      );
 
-    const activeRubric: RubricDef[] = rubric.length > 0 ? rubric : [];
-    const documentIds = documents.map((d) => d.id);
+      const documentIds = documents.map((d) => d.id);
+      // retry:true so re-generating a run also resets failed/stuck jobs —
+      // without it those pairs are skipped and a re-run silently does nothing.
+      const res = await fetch("/api/batch-grade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: currentRunId,
+          modelKeys: selectedModels,
+          documentIds: documentIds.length ? documentIds : undefined,
+          retry: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
 
-    const run: Run = {
-      id: runId,
-      ts: Date.now(),
-      question,
-      imageCount: images.length,
-      systemPrompt,
-      rubric: activeRubric.length ? activeRubric : undefined,
-      results: pendingResults,
-    };
-
-    setRuns((prev) => [run, ...prev]);
-    setCurrentRunId(runId);
-    setActiveResultId(pendingResults[0].id);
-
-    await dbSaveRun(run);
-    const rubricRows = await dbSaveRubric(runId, activeRubric);
-
-    const imageSrcs = images.map((im) => im.src);
-
-    // Fire all models in parallel
-    await Promise.all(
-      pendingResults.map(async (pending) => {
-        try {
-          const res = await fetch("/api/grade", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              modelKey: pending.modelKey,
-              question,
-              images: imageSrcs,
-              systemPrompt,
-              rubric: activeRubric.length ? activeRubric : undefined,
-              answerText: answer || undefined,
-              documentIds: documentIds.length ? documentIds : undefined,
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-
-          const grade = data as GradeResponse;
-          const doneResult: RunResult = {
-            ...pending,
-            status: "done",
-            grade,
-            verdictKind: deriveVerdict(grade.score),
-          };
-
-          setRuns((prev) =>
-            prev.map((r) =>
-              r.id !== runId
-                ? r
-                : {
-                    ...r,
-                    results: r.results.map((x) =>
-                      x.id === pending.id ? doneResult : x,
-                    ),
-                  },
-            ),
-          );
-
-          await dbSaveResult(doneResult);
-          await dbSaveRubricScores(
-            doneResult.id,
-            rubricRows,
-            grade.rubric_breakdown,
-          );
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Gagal";
-          console.error(`[grade] ${pending.modelKey}:`, msg);
-          // Mark as done with an error payload so the card stops spinning
-          const errResult: RunResult = {
-            ...pending,
-            status: "done",
-            grade: {
-              score: 0,
-              extracted_text: "",
-              extraction_note: `Gagal: ${msg}`,
-              feedback_text: "Terjadi kesalahan saat memanggil model.",
-              strengths: [],
-              improvements: [],
-              usage: {
-                prompt_tokens: null,
-                completion_tokens: null,
-                total_tokens: null,
-              },
-              latency: 0,
-            },
-            verdictKind: "bad",
-          };
-          setRuns((prev) =>
-            prev.map((r) =>
-              r.id !== runId
-                ? r
-                : {
-                    ...r,
-                    results: r.results.map((x) =>
-                      x.id === pending.id ? errResult : x,
-                    ),
-                  },
-            ),
-          );
-        }
-      }),
-    );
+      await refreshHistory();
+      if (answers.length <= 1) {
+        const seq = (loadSeqRef.current += 1);
+        await loadSingleRun(currentRunId, answers.length, seq, true);
+      } else {
+        // Compose state already holds this run's question/rubric/documents —
+        // just open the results dialog on top of it.
+        setDashboardOpen(true);
+      }
+    } catch (e) {
+      setGenerateError(e instanceof Error ? e.message : "Gagal memulai penilaian");
+    } finally {
+      setGenerating(false);
+    }
   };
 
-  // ── result/run management ────────────────────────────────────────────────
+  // ── single-run (≤1 answer) polling ──────────────────────────────────────
+  // Single-answer runs still go through the async queued→running→done/error
+  // batch lifecycle (they're graded via the same /api/batch-grade job model),
+  // so this view needs the same kind of poll BatchDashboard does — otherwise
+  // a freshly-generated result never appears without leaving and reopening.
+  useEffect(() => {
+    if (mode !== "single" || !singleRun) return;
+    const unsettled = singleRun.results.some(
+      (r) => r.status === "queued" || r.status === "running",
+    );
+    if (!unsettled) return;
+    const runId = singleRun.id;
+    const scoreMax =
+      singleRun.rubric && singleRun.rubric.length > 0 ? rubricMaxScore(singleRun.rubric) : 100;
+    const id = setInterval(() => {
+      fetchBatchResults(runId, scoreMax)
+        .then((rows) => {
+          setSingleRun((prev) => (prev && prev.id === runId ? { ...prev, results: rows } : prev));
+        })
+        .catch((e) => console.error("[run] poll single:", e));
+    }, 3000);
+    return () => clearInterval(id);
+  }, [mode, singleRun]);
+
+  // ── single-run (≤1 answer) result management ────────────────────────────
+
+  // The dashboard has "Coba Lagi" for failed jobs; single-answer runs need the
+  // same recovery path or an errored model would be stuck with no way to rerun.
+  const [singleRetrying, setSingleRetrying] = useState(false);
+  const retrySingle = async () => {
+    if (!singleRun || singleRetrying) return;
+    setSingleRetrying(true);
+    try {
+      const modelKeys = [...new Set(singleRun.results.map((r) => r.modelKey))];
+      const documentIds = documents.map((d) => d.id);
+      const res = await fetch("/api/batch-grade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: singleRun.id,
+          modelKeys,
+          documentIds: documentIds.length ? documentIds : undefined,
+          retry: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      const scoreMax =
+        singleRun.rubric && singleRun.rubric.length > 0 ? rubricMaxScore(singleRun.rubric) : 100;
+      const rows = await fetchBatchResults(singleRun.id, scoreMax);
+      setSingleRun((prev) => (prev && prev.id === singleRun.id ? { ...prev, results: rows } : prev));
+    } catch (e) {
+      console.error("[run] retrySingle:", e);
+    } finally {
+      setSingleRetrying(false);
+    }
+  };
+  const singleHasError = singleRun?.results.some((r) => r.status === "error") ?? false;
 
   const removeResult = (resultId: string) => {
-    dbDeleteResult(resultId);
-    setRuns((prev) =>
-      prev.map((run) => {
-        if (run.id !== currentRunId) return run;
-        const next = run.results.filter((r) => r.id !== resultId);
-        setActiveResultId((active) =>
-          active === resultId
-            ? next.length
-              ? next[next.length - 1].id
-              : null
-            : active,
-        );
-        return { ...run, results: next };
-      }),
-    );
-  };
-
-  const openRun = (runId: string) => {
-    if (runId === currentRunId) {
-      setCurrentRunId(null);
-      setActiveResultId(null);
-      setQuestion(DEFAULT_QUESTION);
-      setRubric([]);
-      setAnswerText("");
-      setDocuments([]);
-      setSelectedModels(["gpt4o", "gemini25"]);
-      setDrawer(null);
-      return;
-    }
-    const run = runs.find((r) => r.id === runId);
-    if (!run) return;
-    const done = run.results.find((r) => r.status === "done") ?? run.results[0];
-    setCurrentRunId(runId);
-    setActiveResultId(done?.id ?? null);
-    setQuestion(run.question);
-    setRubric(run.rubric ?? []);
-    // Documents + typed answer are session-only (not persisted) — clear on open.
-    setAnswerText("");
-    setDocuments([]);
-    setSelectedModels([...new Set(run.results.map((r) => r.modelKey))]);
-    setDrawer(null);
-  };
-
-  const removeRun = (runId: string) => {
-    dbDeleteRun(runId);
-    setRuns((prev) => {
-      const next = prev.filter((r) => r.id !== runId);
-      if (currentRunId === runId) {
-        const fallback = next[0] ?? null;
-        setCurrentRunId(fallback?.id ?? null);
-        const done = fallback?.results.find((r) => r.status === "done");
-        setActiveResultId(done?.id ?? fallback?.results[0]?.id ?? null);
-      }
-      return next;
+    deleteResult(resultId).catch((e) => console.error("[result] delete:", e));
+    setSingleRun((prev) => {
+      if (!prev) return prev;
+      const next = prev.results.filter((r) => r.id !== resultId);
+      setActiveResultId((active) =>
+        active === resultId ? (next.length ? next[next.length - 1].id : null) : active,
+      );
+      return { ...prev, results: next };
     });
   };
 
-  const renameRun = (runId: string, title: string) => {
-    setRuns((prev) =>
-      prev.map((r) =>
-        r.id === runId ? { ...r, title: title.trim() || undefined } : r,
-      ),
-    );
-    dbUpdateRunTitle(runId, title);
-  };
-
-  // ── derived display values ───────────────────────────────────────────────
-
-  const activeResult =
-    currentRun?.results.find((r) => r.id === activeResultId) ?? null;
-  const activePending = activeResult?.status === "pending";
+  const activeResult = singleRun?.results.find((r) => r.id === activeResultId) ?? null;
+  const activePending =
+    activeResult?.status === "pending" ||
+    activeResult?.status === "queued" ||
+    activeResult?.status === "running";
+  const activeError = activeResult?.status === "error";
   const activeDone = activeResult?.status === "done" ? activeResult : null;
 
   const pendingCount =
-    currentRun?.results.filter((r) => r.status === "pending").length ?? 0;
-  const totalCount = currentRun?.results.length ?? 0;
+    singleRun?.results.filter(
+      (r) => r.status === "pending" || r.status === "queued" || r.status === "running",
+    ).length ?? 0;
+  const totalCount = singleRun?.results.length ?? 0;
 
-  function timeStr(ts: number) {
-    const d = new Date(ts);
-    const p = (x: number) => String(x).padStart(2, "0");
-    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-  }
+  // The current run already has batch results (per the refreshed history) —
+  // offer the "Lihat Hasil" shortcut to reopen the results dialog from compose.
+  const currentSummary = currentRunId
+    ? history.find((h) => h.id === currentRunId)
+    : undefined;
+  const currentRunHasBatchResults =
+    (currentSummary?.resultCount ?? 0) > 0 && (currentSummary?.answerCount ?? 0) > 1;
 
   // ── render ───────────────────────────────────────────────────────────────
 
@@ -642,9 +547,9 @@ export default function Home() {
               lineHeight: 1.5,
             }}
           >
-            Unggah lembar jawaban tulisan tangan, pilih beberapa model, lalu
-            jalankan bersamaan untuk membandingkan ekstraksi, penilaian, dan
-            latensi.
+            Unggah hingga 50 lembar jawaban siswa (gambar, PDF, atau teks), pilih
+            beberapa model, lalu nilai sekaligus untuk membandingkan ekstraksi,
+            penilaian, dan latensi.
           </p>
         </div>
 
@@ -692,7 +597,7 @@ export default function Home() {
             }}
           >
             <span style={{ fontSize: 13 }}>◗</span> Riwayat
-            {runs.length > 0 && (
+            {history.length > 0 && (
               <span
                 style={{
                   fontFamily: "var(--font-mono)",
@@ -704,7 +609,7 @@ export default function Home() {
                   lineHeight: 1.5,
                 }}
               >
-                {runs.length}
+                {history.length}
               </span>
             )}
           </button>
@@ -720,212 +625,290 @@ export default function Home() {
           margin: "0 auto",
         }}
       >
-        {/* ── input row ── */}
-        <section
-          style={{
-            background: "#fffdf7",
-            border: "1px solid #e6dcc7",
-            borderRadius: 12,
-            boxShadow: "0 1px 2px rgba(80,60,30,.04)",
-            display: "grid",
-            gridTemplateColumns: "1.5fr 1.15fr 1.05fr",
-            alignItems: "stretch",
-          }}
-        >
-          <QuestionInput
-            value={question}
-            onChange={setQuestion}
-            documents={documents}
-            onDocumentsChange={setDocuments}
-            accent={ACCENT}
-          />
-          <SheetUploader
-            images={images}
-            maxImages={MAX_IMAGES}
-            accent={ACCENT}
-            onAdd={addFiles}
-            onRemove={removeImage}
-            answerText={answerText}
-            onAnswerChange={setAnswerText}
-          />
-          <ModelPicker
-            selectedModels={selectedModels}
-            onAdd={addModel}
-            onRemove={removeModel}
-            onGenerate={generate}
-            generating={anyPending}
-            hasImages={images.length > 0 || answerText.trim().length > 0}
-            rubricInvalid={rubricInvalid}
-            accent={ACCENT}
-          />
-        </section>
+        {loadingRun && (
+          <div style={{ fontSize: 12.5, color: "#9a8e79" }}>Memuat run…</div>
+        )}
 
-        {/* ── rubric (own full-width section — needs room to grow) ── */}
-        <section>
-          <RubricBuilder rubric={rubric} onChange={setRubric} accent={ACCENT} />
-        </section>
-
-        {/* ── results ── */}
-        <section>
-          {runs.length === 0 ? (
-            <div
-              style={{
-                background: "#fffdf7",
-                border: "1px solid #e6dcc7",
-                borderRadius: 12,
-                minHeight: 300,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
-                padding: 40,
-              }}
-            >
-              <div
-                style={{
-                  width: 54,
-                  height: 54,
-                  borderRadius: 13,
-                  background: "#f1e9d7",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 24,
-                  marginBottom: 16,
-                }}
-              >
-                ✎
-              </div>
-              <div
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: 19,
-                  color: "#5a5142",
-                  marginBottom: 7,
-                }}
-              >
-                Belum ada hasil
-              </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "#9a8e79",
-                  maxWidth: 360,
-                  lineHeight: 1.55,
-                }}
-              >
-                Pilih satu atau beberapa model lalu klik{" "}
-                <strong style={{ color: "#6b6151" }}>Generate</strong>. Setiap
-                run tersimpan di{" "}
-                <strong style={{ color: "#6b6151" }}>Riwayat</strong> dan dapat
-                dibuka kembali.
-              </div>
-            </div>
-          ) : currentRun ? (
-            <>
-              {/* run meta */}
+        {mode === "compose" && !loadingRun && (
+          <>
+            {/* ── reopen batch results ── */}
+            {currentRunHasBatchResults && (
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  gap: 16,
-                  marginBottom: 14,
-                  flexWrap: "wrap",
+                  gap: 14,
+                  background: "#fffdf7",
+                  border: "1px solid #e6dcc7",
+                  borderRadius: 12,
+                  padding: "11px 16px",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span
-                    style={{
-                      fontFamily: "var(--font-display)",
-                      fontSize: 17,
-                      color: "#3a342b",
-                    }}
-                  >
-                    Hasil run
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 11.5,
-                      color: "#9a8e79",
-                    }}
-                  >
-                    {timeStr(currentRun.ts)} · {currentRun.imageCount} lembar ·{" "}
-                    {totalCount} model
-                  </span>
-                </div>
-                <div style={{ fontSize: 11.5, color: "#9a8e79" }}>
+                <span style={{ fontSize: 12.5, color: "#7a6f5e" }}>
+                  Run ini sudah memiliki hasil penilaian batch.
+                </span>
+                <button
+                  onClick={() => setDashboardOpen(true)}
+                  style={{
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "7px 14px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "#fff",
+                    background: ACCENT,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  Lihat Hasil
+                </button>
+              </div>
+            )}
+
+            {/* ── question + model row ── */}
+            <section
+              style={{
+                background: "#fffdf7",
+                border: "1px solid #e6dcc7",
+                borderRadius: 12,
+                boxShadow: "0 1px 2px rgba(80,60,30,.04)",
+                display: "grid",
+                gridTemplateColumns: "1.7fr 1fr",
+                alignItems: "stretch",
+              }}
+            >
+              <QuestionInput
+                value={question}
+                onChange={setQuestion}
+                documents={documents}
+                onDocumentsChange={setDocuments}
+                accent={ACCENT}
+              />
+              <ModelPicker
+                selectedModels={selectedModels}
+                onAdd={addModel}
+                onRemove={removeModel}
+                onGenerate={generate}
+                generating={generating}
+                hasImages={answers.length > 0 && !answersBusy}
+                rubricInvalid={rubricInvalid}
+                accent={ACCENT}
+              />
+            </section>
+
+            {generateError && (
+              <div
+                style={{
+                  fontSize: 12.5,
+                  color: "#9a4632",
+                  background: "#f4e2dc",
+                  border: "1px solid #e6c2b6",
+                  borderRadius: 9,
+                  padding: "10px 14px",
+                }}
+              >
+                {generateError}
+              </div>
+            )}
+
+            {/* ── answers (own full-width section) ── */}
+            <section
+              style={{
+                background: "#fffdf7",
+                border: "1px solid #e6dcc7",
+                borderRadius: 12,
+                boxShadow: "0 1px 2px rgba(80,60,30,.04)",
+                padding: 18,
+              }}
+            >
+              <AnswersManager
+                answers={answers}
+                onAnswersChange={setAnswers}
+                ensureRunId={ensureDraftRun}
+                runId={currentRunId}
+                accent={ACCENT}
+              />
+            </section>
+
+            {/* ── rubric (own full-width section — needs room to grow) ── */}
+            <section>
+              <RubricBuilder rubric={rubric} onChange={setRubric} accent={ACCENT} />
+            </section>
+          </>
+        )}
+
+        {mode === "single" && singleRun && !loadingRun && (
+          <section>
+            {/* run meta */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 16,
+                marginBottom: 14,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 17,
+                    color: "#3a342b",
+                  }}
+                >
+                  Hasil run
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11.5,
+                    color: "#9a8e79",
+                  }}
+                >
+                  {timeStr(singleRun.ts)} · {singleRun.imageCount} berkas ·{" "}
+                  {totalCount} model
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 11.5, color: "#9a8e79" }}>
                   {pendingCount > 0
                     ? `Memproses ${pendingCount} dari ${totalCount} model…`
                     : "Selesai"}
-                </div>
-              </div>
-
-              {/* model cards */}
-              <ResultCards
-                run={currentRun}
-                activeResultId={activeResultId}
-                accent={ACCENT}
-                onSelect={setActiveResultId}
-                onRemove={removeResult}
-              />
-
-              {/* active detail */}
-              {activePending && (
-                <div
+                </span>
+                {singleHasError && (
+                  <button
+                    onClick={retrySingle}
+                    disabled={singleRetrying}
+                    style={{
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "7px 13px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "#fff",
+                      background: singleRetrying ? "#a89478" : ACCENT,
+                      cursor: singleRetrying ? "default" : "pointer",
+                    }}
+                  >
+                    {singleRetrying ? "Mencoba ulang…" : "Coba Lagi"}
+                  </button>
+                )}
+                <button
+                  onClick={resetToBlankDraft}
+                  title="Tutup run ini"
                   style={{
+                    border: "1px solid #e3d9c5",
                     background: "#fffdf7",
-                    border: "1px solid #e6dcc7",
-                    borderRadius: 12,
-                    minHeight: 280,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 14,
+                    borderRadius: 8,
+                    padding: "7px 11px",
+                    fontSize: 12,
+                    color: "#7a6f5e",
+                    cursor: "pointer",
                   }}
                 >
-                  <span
-                    style={{
-                      width: 26,
-                      height: 26,
-                      border: "3px solid #ece2cd",
-                      borderTopColor: ACCENT,
-                      borderRadius: "50%",
-                      display: "inline-block",
-                      animation: "spin .7s linear infinite",
-                    }}
-                  />
-                  <div style={{ fontSize: 13, color: "#9a8e79" }}>
-                    Menjalankan {activeResult ? activeResult.modelKey : "model"}
-                    …
-                  </div>
+                  × Tutup
+                </button>
+              </div>
+            </div>
+
+            {/* model cards */}
+            <ResultCards
+              run={singleRun}
+              activeResultId={activeResultId}
+              accent={ACCENT}
+              onSelect={setActiveResultId}
+              onRemove={removeResult}
+            />
+
+            {/* active detail */}
+            {activePending && (
+              <div
+                style={{
+                  background: "#fffdf7",
+                  border: "1px solid #e6dcc7",
+                  borderRadius: 12,
+                  minHeight: 280,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 14,
+                }}
+              >
+                <span
+                  style={{
+                    width: 26,
+                    height: 26,
+                    border: "3px solid #ece2cd",
+                    borderTopColor: ACCENT,
+                    borderRadius: "50%",
+                    display: "inline-block",
+                    animation: "spin .7s linear infinite",
+                  }}
+                />
+                <div style={{ fontSize: 13, color: "#9a8e79" }}>
+                  Menjalankan {activeResult ? activeResult.modelKey : "model"}…
                 </div>
-              )}
+              </div>
+            )}
 
-              {activeDone && (
-                <ResultDetail
-                  result={activeDone}
-                  accent={ACCENT}
-                  rubric={currentRun?.rubric}
-                />
-              )}
+            {activeError && (
+              <div
+                style={{
+                  background: "#fffdf7",
+                  border: "1px solid #e6dcc7",
+                  borderRadius: 12,
+                  minHeight: 160,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 24,
+                  textAlign: "center",
+                  fontSize: 13,
+                  color: "#9a4632",
+                }}
+              >
+                Gagal: {activeResult?.error ?? "Terjadi kesalahan saat menilai."}
+              </div>
+            )}
 
-              {activeDone?.grade && (
-                <ChatPanel
-                  resultId={activeDone.id}
-                  modelKey={activeDone.modelKey}
-                  question={currentRun.question}
-                  grade={activeDone.grade}
-                  accent={ACCENT}
-                />
-              )}
-            </>
-          ) : null}
-        </section>
+            {activeDone && (
+              <ResultDetail
+                result={activeDone}
+                accent={ACCENT}
+                rubric={singleRun?.rubric}
+              />
+            )}
+
+            {activeDone?.grade && (
+              <ChatLauncher
+                key={activeDone.id}
+                resultId={activeDone.id}
+                modelKey={activeDone.modelKey}
+                question={singleRun.question}
+                grade={activeDone.grade}
+                accent={ACCENT}
+              />
+            )}
+          </section>
+        )}
+
       </div>
+
+      {/* ── batch results dialog ── */}
+      <BatchResultsDialog
+        open={dashboardOpen}
+        runId={currentRunId}
+        question={question}
+        rubric={rubric.length ? rubric : undefined}
+        documentIds={documents.map((d) => d.id)}
+        accent={ACCENT}
+        onClose={() => setDashboardOpen(false)}
+      />
 
       {/* ── drawers ── */}
       <PromptDrawer
@@ -938,7 +921,7 @@ export default function Home() {
       />
       <HistoryDrawer
         open={drawer === "history"}
-        runs={runs}
+        runs={history}
         currentRunId={currentRunId}
         onOpen={openRun}
         onRemove={removeRun}

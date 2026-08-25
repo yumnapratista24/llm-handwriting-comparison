@@ -187,8 +187,8 @@ export default function ResultCards({ run, activeResultId, accent, onSelect, onR
                 </div>
               </div>
 
-              {/* pending */}
-              {r.status === "pending" && (
+              {/* pending / queued / running */}
+              {(r.status === "pending" || r.status === "queued" || r.status === "running") && (
                 <div
                   style={{
                     display: "flex",
@@ -209,7 +209,23 @@ export default function ResultCards({ run, activeResultId, accent, onSelect, onR
                       animation: "spin .7s linear infinite",
                     }}
                   />
-                  <span style={{ fontSize: 12 }}>menganalisis lembar…</span>
+                  <span style={{ fontSize: 12 }}>
+                    {r.status === "queued" ? "menunggu antrian…" : "menganalisis lembar…"}
+                  </span>
+                </div>
+              )}
+
+              {/* error (batch job failed) */}
+              {r.status === "error" && (
+                <div
+                  style={{
+                    padding: "8px 0 4px",
+                    fontSize: 11.5,
+                    color: "#9a4632",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Gagal: {r.error ?? "Terjadi kesalahan saat menilai."}
                 </div>
               )}
 

@@ -1,13 +1,12 @@
 import OpenAI from "openai";
-import { getModel, type GradeResponse, type Citation } from "@/lib/models";
+import { getModel, type GradeResponse } from "@/lib/models";
+import { type RubricCriterion, type PromptChunk } from "@/lib/prompt";
 import {
-  composeSystemPrompt,
-  buildUserPrompt,
-  buildMaterialBlock,
-  buildGradeTool,
-  type RubricCriterion,
-  type PromptChunk,
-} from "@/lib/prompt";
+  buildGradeRequestPayload,
+  parseGradeToolResponse,
+  type GradeAnswerContent,
+  type ParsedGrade,
+} from "@/lib/grading";
 import { retrieveForGrading, type RetrievedChunk } from "@/lib/rag";
 
 export const runtime = "nodejs";
@@ -70,17 +69,18 @@ export async function POST(request: Request) {
   const client = new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
 
   // Text answer → grade the text directly (no images). Otherwise send images.
-  const imageContent = answer
-    ? []
-    : images.map((url) => ({ type: "image_url" as const, image_url: { url } }));
+  const answerContent: GradeAnswerContent = answer
+    ? { mode: "text", text: answer }
+    : { mode: "images", imageUrls: images };
 
-  const systemMessage = composeSystemPrompt(systemPrompt);
-  const userText = buildUserPrompt(question, rubric, answer);
-
-  // Material rides as its own text part, ahead of the question.
-  const materialContent = promptChunks.length
-    ? [{ type: "text" as const, text: buildMaterialBlock(promptChunks) }]
-    : [];
+  const payload = buildGradeRequestPayload({
+    openrouterId: model.openrouterId,
+    systemPrompt,
+    question,
+    rubric,
+    material: promptChunks,
+    answer: answerContent,
+  });
 
   console.log(
     "[grade] chunks:",
@@ -92,18 +92,9 @@ export async function POST(request: Request) {
   const start = performance.now();
   let res;
   try {
-    res = await client.chat.completions.create({
-      model: model.openrouterId,
-      messages: [
-        { role: "system", content: systemMessage },
-        {
-          role: "user",
-          content: [...materialContent, { type: "text", text: userText }, ...imageContent],
-        },
-      ],
-      tools: [buildGradeTool(!!rubric?.length, promptChunks.length > 0)],
-      tool_choice: { type: "function", function: { name: "grade_answer" } },
-    });
+    res = await client.chat.completions.create(
+      payload as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Panggilan ke OpenRouter gagal";
     console.error("[grade] OpenRouter error:", message);
@@ -118,47 +109,15 @@ export async function POST(request: Request) {
   const args = toolCall?.type === "function" ? toolCall.function.arguments : undefined;
   if (!args) return err("Model tidak mengembalikan hasil penilaian (grade_answer)", 502);
 
-  let parsed: Partial<GradeResponse>;
+  let grade: ParsedGrade;
   try {
-    parsed = JSON.parse(args);
+    grade = parseGradeToolResponse(args, { answerText: answer });
   } catch {
     return err("Hasil grade_answer bukan JSON valid", 502);
   }
 
-  // Text answers: the provided text IS the answer — no transcription.
-  const extracted_text = answer ? answer : parsed.extracted_text ?? "";
-  const extraction_note = answer
-    ? "Jawaban diberikan dalam bentuk teks."
-    : parsed.extraction_note ?? "";
-
-  const citations =
-    Array.isArray(parsed.citations) && parsed.citations.length
-      ? parsed.citations
-          .map((c: Citation) => ({
-            chunk_id: String(c.chunk_id ?? ""),
-            document: String(c.document ?? ""),
-            snippet: String(c.snippet ?? ""),
-          }))
-          .filter((c) => c.chunk_id)
-      : undefined;
-
-  const payload: GradeResponse = {
-    extracted_text,
-    extraction_note,
-    score: typeof parsed.score === "number" ? Math.max(0, Math.min(100, Math.round(parsed.score))) : 0,
-    feedback_text:   parsed.feedback_text   ?? "",
-    strengths:       Array.isArray(parsed.strengths)    ? parsed.strengths    : [],
-    improvements:    Array.isArray(parsed.improvements) ? parsed.improvements : [],
-    rubric_breakdown:
-      Array.isArray(parsed.rubric_breakdown) && parsed.rubric_breakdown.length
-        ? parsed.rubric_breakdown.map((r: Record<string, unknown>) => ({
-            criterion: String(r.criterion ?? ""),
-            max: Number(r.max ?? 0),
-            awarded: Number(r.awarded ?? 0),
-            reason: String(r.reason ?? ""),
-          }))
-        : undefined,
-    citations: citations && citations.length ? citations : undefined,
+  const payloadOut: GradeResponse = {
+    ...grade,
     usage: {
       prompt_tokens:     res.usage?.prompt_tokens     ?? null,
       completion_tokens: res.usage?.completion_tokens ?? null,
@@ -167,5 +126,5 @@ export async function POST(request: Request) {
     latency,
   };
 
-  return Response.json(payload);
+  return Response.json(payloadOut);
 }
