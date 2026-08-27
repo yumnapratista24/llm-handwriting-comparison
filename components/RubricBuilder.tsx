@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { RubricCriterion } from "@/lib/prompt";
+import { uploadTransientFile } from "@/lib/storage";
 
 interface Props {
   rubric: RubricCriterion[];
@@ -45,9 +46,14 @@ export default function RubricBuilder({
     setUploading(true);
     setUploadError(null);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/rubric-extract", { method: "POST", body: form });
+      // Relay via storage instead of the request body — serverless platforms
+      // cap API request bodies (~4.5MB), which broke larger PDFs.
+      const storagePath = await uploadTransientFile("rubrik", file);
+      const res = await fetch("/api/rubric-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storagePath, filename: file.name }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
       onChange(data.criteria as RubricCriterion[]);

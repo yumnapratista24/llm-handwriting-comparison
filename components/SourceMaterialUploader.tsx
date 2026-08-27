@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { AttachedDocument } from "@/lib/models";
+import { uploadTransientFile } from "@/lib/storage";
 
 interface Props {
   documents: AttachedDocument[];
@@ -17,9 +18,14 @@ export default function SourceMaterialUploader({ documents, onChange, accent }: 
   const pick = () => fileRef.current?.click();
 
   async function ingest(file: File): Promise<AttachedDocument> {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch("/api/ingest", { method: "POST", body: fd });
+    // Relay via storage instead of the request body — serverless platforms cap
+    // API request bodies (~4.5MB), which broke larger PDFs.
+    const storagePath = await uploadTransientFile("materi", file);
+    const res = await fetch("/api/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storagePath, filename: file.name }),
+    });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
     return {

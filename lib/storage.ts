@@ -30,6 +30,26 @@ export function answerObjectPath(
   return `runs/${runId}/answers/${answerId}/${uuid}-${sanitizeFilename(filename)}`;
 }
 
+// Upload a short-lived relay file (rubric / source-material) and return its
+// storage path. Serverless platforms cap API request bodies (~4.5MB on
+// Vercel), so files go browser → storage, and the API route receives only the
+// path and downloads server-side. The route deletes the object when done.
+export async function uploadTransientFile(
+  prefix: string,
+  file: File,
+): Promise<string> {
+  const supabase = getSupabase();
+  const storagePath = `tmp/${prefix}/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
+  const { error } = await supabase.storage
+    .from(GRADING_UPLOADS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || undefined,
+      upsert: false,
+    });
+  if (error) throw new Error(error.message);
+  return storagePath;
+}
+
 // Upload one answer file and return its storage ref (path + mime + size).
 export async function uploadAnswerFile(
   runId: string,

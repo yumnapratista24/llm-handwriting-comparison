@@ -1,11 +1,16 @@
+import { after } from "next/server";
 import { getServerSupabase } from "@/lib/supabase-server";
 import { getModel } from "@/lib/models";
+import { executeQueuedResultsInline } from "@/lib/job-executor";
 import { rubricCriterionMax, type RubricCriterion, type PromptChunk } from "@/lib/prompt";
 import { buildGradeRequestPayload, type GradeAnswerContent } from "@/lib/grading";
 import { retrieveForGrading, type RetrievedChunk } from "@/lib/rag";
 import { GRADING_UPLOADS_BUCKET } from "@/lib/storage";
 
 export const runtime = "nodejs";
+// Inline fallback mode grades after the response returns (via after()) — give
+// it room on serverless platforms.
+export const maxDuration = 300;
 
 const MAX_ANSWERS = 50;
 const STUCK_MS = 10 * 60 * 1000; // re-enqueue jobs stuck queued/running past this
@@ -74,10 +79,23 @@ const storageRef = (path: string) => `storage://${GRADING_UPLOADS_BUCKET}/${path
 const pairKey = (answerId: string, modelKey: string) => `${answerId}::${modelKey}`;
 
 export async function POST(request: Request) {
+  // With GRADER_WORKER_URL set, jobs go to the Cloudflare worker queue
+  // (recommended). Without it the app falls back to grading in-process, so it
+  // stays usable with only Supabase + OPENROUTER_API_KEY configured.
   const workerBase = process.env.GRADER_WORKER_URL;
   const workerKey = process.env.GRADER_WORKER_API_KEY;
-  if (!workerBase) return err("GRADER_WORKER_URL belum diset di .env.local", 500);
-  if (!workerKey) return err("GRADER_WORKER_API_KEY belum diset di .env.local", 500);
+  if (workerBase && !workerKey) {
+    return err(
+      "GRADER_WORKER_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)",
+      500,
+    );
+  }
+  if (!workerBase && !process.env.OPENROUTER_API_KEY) {
+    return err(
+      "OPENROUTER_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)",
+      500,
+    );
+  }
 
   let body: BatchGradeRequest;
   try {
@@ -323,9 +341,15 @@ export async function POST(request: Request) {
 
   const created = newRows.length;
 
-  // ── enqueue to the worker ────────────────────────────────────────────────────
+  // ── dispatch ─────────────────────────────────────────────────────────────────
   if (!enqueueIds.length) {
     return Response.json({ created, enqueued: 0 });
+  }
+
+  // No worker configured → grade in-process after the response is sent.
+  if (!workerBase) {
+    after(() => executeQueuedResultsInline(enqueueIds));
+    return Response.json({ created, enqueued: enqueueIds.length, mode: "inline" });
   }
 
   const url = `${workerBase.replace(/\/$/, "")}/enqueue-prototype-answer-grading`;
@@ -348,7 +372,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: workerKey,
+        apikey: workerKey!,
         Authorization: `Bearer ${workerKey}`,
       },
       body: JSON.stringify({ jobs: enqueueIds.map((id) => ({ resultId: id })) }),

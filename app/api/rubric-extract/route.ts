@@ -7,6 +7,7 @@ import {
   type RubricCriterion,
 } from "@/lib/prompt";
 import { extractText } from "@/lib/rag";
+import { readUploadedFile } from "@/lib/upload-relay";
 
 export const runtime = "nodejs";
 
@@ -29,24 +30,24 @@ type ContentPart =
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di .env.local", 500);
+  if (!apiKey) {
+    return err(
+      "OPENROUTER_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)",
+      500,
+    );
+  }
 
   const model = getModel(EXTRACTION_MODEL_KEY);
   if (!model) return err("Model ekstraksi tidak ditemukan", 500);
 
-  let form: FormData;
-  try {
-    form = await request.formData();
-  } catch {
-    return err("Body permintaan tidak valid", 400);
-  }
+  // JSON { storagePath, filename } (storage relay, no body-size cap) or legacy
+  // multipart form-data — see lib/upload-relay.ts.
+  const uploaded = await readUploadedFile(request);
+  if (!uploaded) return err("Tidak ada berkas rubrik", 400);
+  const { buffer, filename, cleanup } = uploaded;
+  await cleanup(); // buffer already in memory; drop the relay object now
 
-  const file = form.get("file");
-  if (!(file instanceof File)) return err("Tidak ada berkas rubrik", 400);
-
-  const filename = file.name;
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  const buffer = Buffer.from(await file.arrayBuffer());
 
   let content: ContentPart[];
   if (["pdf", "doc", "docx"].includes(ext)) {

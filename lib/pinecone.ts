@@ -13,21 +13,21 @@ let _embeddings: OpenAIEmbeddings | null = null;
 function pinecone(): Pinecone {
   if (_pc) return _pc;
   const apiKey = process.env.PINECONE_API_KEY;
-  if (!apiKey) throw new Error("PINECONE_API_KEY belum diset di .env.local");
+  if (!apiKey) throw new Error("PINECONE_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)");
   _pc = new Pinecone({ apiKey });
   return _pc;
 }
 
 export function pineconeIndex() {
   const name = process.env.PINECONE_INDEX;
-  if (!name) throw new Error("PINECONE_INDEX belum diset di .env.local");
+  if (!name) throw new Error("PINECONE_INDEX belum diset di environment server (lokal: .env.local, deployment: Environment Variables)");
   return pinecone().index(name);
 }
 
 export function embeddings(): OpenAIEmbeddings {
   if (_embeddings) return _embeddings;
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diset di .env.local");
+  if (!apiKey) throw new Error("OPENAI_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)");
   _embeddings = new OpenAIEmbeddings({ apiKey, model: EMBEDDING_MODEL });
   return _embeddings;
 }

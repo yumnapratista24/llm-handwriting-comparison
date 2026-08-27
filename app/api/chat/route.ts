@@ -22,7 +22,7 @@ function err(message: string, status: number) {
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di .env.local", 500);
+  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)", 500);
 
   let body: ChatRequest;
   try {
