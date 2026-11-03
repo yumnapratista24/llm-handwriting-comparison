@@ -1,27 +1,41 @@
 "use client";
 
-// Token-saving gate in front of ChatPanel: ChatPanel auto-fires the tutor's
-// opening turn (an LLM call) as soon as it mounts, so it must NOT be mounted
-// until the user explicitly asks for it. Until then this renders only a
-// zero-cost launcher card. Call sites key this by result id so switching
-// results collapses back to the button instead of auto-starting a new chat.
-import { useState } from "react";
+// Gate in front of ChatPanel: ChatPanel creates the result's tutoring session
+// as soon as it mounts, so it must NOT be mounted until the user explicitly
+// asks for it. Call sites key this by result id so switching results collapses
+// back to the button.
+import { useEffect, useState } from "react";
 import ChatPanel from "@/components/ChatPanel";
-import { getModel, type GradeResponse } from "@/lib/models";
+import { getModel } from "@/lib/models";
 
 interface Props {
   resultId: string;
   modelKey: string;
-  question: string;
-  grade: GradeResponse;
   accent: string;
 }
 
 export default function ChatLauncher(props: Props) {
   const [started, setStarted] = useState(false);
+  const [checking, setChecking] = useState(true);
   const model = getModel(props.modelKey);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tutor/session?resultId=${encodeURIComponent(props.resultId)}`)
+      .then((res) => {
+        if (!cancelled && res.ok) setStarted(true);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.resultId]);
+
   if (started) return <ChatPanel {...props} />;
+  if (checking) return null;
 
   return (
     <div

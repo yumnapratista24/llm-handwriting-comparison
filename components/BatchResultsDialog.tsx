@@ -10,7 +10,6 @@ import type { RubricDef } from "@/lib/models";
 interface Props {
   open: boolean;
   runId: string | null;
-  question: string;
   rubric?: RubricDef[];
   documentIds?: string[];
   accent: string;
@@ -20,7 +19,6 @@ interface Props {
 export default function BatchResultsDialog({
   open,
   runId,
-  question,
   rubric,
   documentIds,
   accent,
@@ -61,7 +59,6 @@ export default function BatchResultsDialog({
         <BatchDashboard
           key={runId}
           runId={runId}
-          question={question}
           rubric={rubric}
           documentIds={documentIds}
           accent={accent}
