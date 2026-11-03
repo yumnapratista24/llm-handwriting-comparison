@@ -6,6 +6,7 @@ import { rubricCriterionMax, type RubricCriterion, type PromptChunk } from "@/li
 import { buildGradeRequestPayload, type GradeAnswerContent } from "@/lib/grading";
 import { retrieveForGrading, type RetrievedChunk } from "@/lib/rag";
 import { GRADING_UPLOADS_BUCKET } from "@/lib/storage";
+import { deleteSessionsForResult } from "@/lib/tutor/db";
 
 export const runtime = "nodejs";
 // Inline fallback mode grades after the response returns (via after()) — give
@@ -316,6 +317,12 @@ export async function POST(request: Request) {
 
   const enqueueIds: string[] = newRows.map((r) => r.id);
   for (const op of resetOps) {
+    try {
+      await deleteSessionsForResult(op.id);
+    } catch (e) {
+      console.error("[batch-grade] reset tutor session:", e instanceof Error ? e.message : e);
+      continue;
+    }
     const { error: resetErr } = await supabase
       .from("grading_results")
       .update({

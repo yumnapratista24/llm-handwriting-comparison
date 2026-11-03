@@ -6,6 +6,7 @@
 //
 // The legacy sync helpers still live inline in app/page.tsx; this module does
 // not replace them. It only adds the new batch surface.
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase";
 import {
   deriveVerdict,
@@ -231,8 +232,11 @@ export interface RunSummaryRow {
 
 // Fetch one run's own fields (not its results) — used when resuming a draft or
 // opening a run's detail view from history.
-export async function getRun(runId: string): Promise<RunSummaryRow | null> {
-  const { data, error } = await getSupabase()
+export async function getRun(
+  runId: string,
+  client: SupabaseClient = getSupabase(),
+): Promise<RunSummaryRow | null> {
+  const { data, error } = await client
     .from("grading_runs")
     .select("id, created_at, question, system_prompt, title, answer_count")
     .eq("id", runId)
@@ -478,8 +482,10 @@ interface RubricScoreRow {
 }
 
 // Load the rubric matrix saved against a run (empty array when none).
-export async function loadRubricForRun(runId: string): Promise<RubricDef[]> {
-  const supabase = getSupabase();
+export async function loadRubricForRun(
+  runId: string,
+  supabase: SupabaseClient = getSupabase(),
+): Promise<RubricDef[]> {
   const { data: defsData, error: defsErr } = await supabase
     .from("grading_rubric")
     .select("id, position, criterion, description")
@@ -513,10 +519,10 @@ export async function loadRubricForRun(runId: string): Promise<RubricDef[]> {
 export async function loadLegacyRubricBreakdown(
   runId: string,
   rubric: RubricDef[],
+  supabase: SupabaseClient = getSupabase(),
 ): Promise<Map<string, NonNullable<GradeResponse["rubric_breakdown"]>>> {
   const empty = new Map<string, NonNullable<GradeResponse["rubric_breakdown"]>>();
   if (!rubric.length) return empty;
-  const supabase = getSupabase();
 
   const { data: defsData, error: defsErr } = await supabase
     .from("grading_rubric")

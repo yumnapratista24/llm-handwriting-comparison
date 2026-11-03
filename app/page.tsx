@@ -889,8 +889,6 @@ export default function Home() {
                 key={activeDone.id}
                 resultId={activeDone.id}
                 modelKey={activeDone.modelKey}
-                question={singleRun.question}
-                grade={activeDone.grade}
                 accent={ACCENT}
               />
             )}
@@ -903,7 +901,6 @@ export default function Home() {
       <BatchResultsDialog
         open={dashboardOpen}
         runId={currentRunId}
-        question={question}
         rubric={rubric.length ? rubric : undefined}
         documentIds={documents.map((d) => d.id)}
         accent={ACCENT}

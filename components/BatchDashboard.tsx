@@ -45,14 +45,13 @@ const fmtNum = (n: number | null | undefined) => (n == null ? "—" : n.toLocale
 
 interface Props {
   runId: string;
-  question: string;
   rubric?: RubricDef[];
   documentIds?: string[];
   accent: string;
   onClose: () => void;
 }
 
-export default function BatchDashboard({ runId, question, rubric, documentIds, accent, onClose }: Props) {
+export default function BatchDashboard({ runId, rubric, documentIds, accent, onClose }: Props) {
   const [answers, setAnswers] = useState<AnswerEntry[]>([]);
   const [results, setResults] = useState<RunResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -486,8 +485,6 @@ export default function BatchDashboard({ runId, question, rubric, documentIds, a
                   key={openResult.id}
                   resultId={openResult.id}
                   modelKey={openResult.modelKey}
-                  question={question}
-                  grade={openResult.grade}
                   accent={accent}
                 />
               )}
