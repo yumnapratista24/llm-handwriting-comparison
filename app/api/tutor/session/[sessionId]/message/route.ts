@@ -1,5 +1,6 @@
 import { openRouterLlm } from "@/lib/tutor/llm";
 import { runTutorTurn, TutorError } from "@/lib/tutor/tutorService";
+import { OPENROUTER_KEY_MISSING_MESSAGE, openRouterKey } from "@/lib/openrouter";
 
 export const runtime = "nodejs";
 
@@ -16,8 +17,8 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)", 500);
+  const apiKey = openRouterKey();
+  if (!apiKey) return err(OPENROUTER_KEY_MISSING_MESSAGE, 500);
 
   const { sessionId } = await params;
 

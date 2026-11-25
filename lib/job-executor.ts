@@ -12,8 +12,7 @@
 import { getServerSupabase } from "@/lib/supabase-server";
 import { GRADING_UPLOADS_BUCKET } from "@/lib/storage";
 import { parseGradeToolResponse } from "@/lib/grading";
-
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+import { OPENROUTER_CHAT_COMPLETIONS_URL, openRouterKey } from "@/lib/openrouter";
 const CONCURRENCY = 3;
 const TRANSIENT_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 2000;
@@ -101,12 +100,12 @@ async function resolveStorageRefs(payload: RequestPayload): Promise<void> {
 }
 
 async function callOpenRouter(payload: RequestPayload): Promise<OpenRouterResponse> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = openRouterKey();
   if (!apiKey) throw new JobError("OPENROUTER_API_KEY belum diset", false);
 
   let res: Response;
   try {
-    res = await fetch(OPENROUTER_URL, {
+    res = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

@@ -1,4 +1,6 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
+
+import { openRouterClient } from "@/lib/openrouter";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -22,8 +24,10 @@ export interface LlmProvider {
   chat(params: ChatParams): Promise<ChatResult>;
 }
 
+// Every LLM call in the tutor stack goes through OpenRouter
+// (lib/openrouter.ts). The model id is an OpenRouter id, passed verbatim.
 export function openRouterLlm(apiKey: string): LlmProvider {
-  const client = new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
+  const client = openRouterClient(apiKey);
   return {
     async chat({ model, system, messages, maxTokens }) {
       const res = await client.chat.completions.create({
@@ -48,6 +52,6 @@ export interface ChatCompletionsClient {
 }
 
 export function openRouterCompletions(apiKey: string): ChatCompletionsClient {
-  const client = new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
+  const client = openRouterClient(apiKey);
   return { create: (body) => client.chat.completions.create(body) };
 }

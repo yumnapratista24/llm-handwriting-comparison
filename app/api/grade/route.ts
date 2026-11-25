@@ -1,5 +1,10 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import { getModel, type GradeResponse } from "@/lib/models";
+import {
+  OPENROUTER_KEY_MISSING_MESSAGE,
+  openRouterClient,
+  openRouterKey,
+} from "@/lib/openrouter";
 import { type RubricCriterion, type PromptChunk } from "@/lib/prompt";
 import {
   buildGradeRequestPayload,
@@ -32,8 +37,8 @@ const toPromptChunk = (c: RetrievedChunk): PromptChunk => ({
 });
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return err("OPENROUTER_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)", 500);
+  const apiKey = openRouterKey();
+  if (!apiKey) return err(OPENROUTER_KEY_MISSING_MESSAGE, 500);
 
   let body: GradeRequest;
   try {
@@ -66,7 +71,8 @@ export async function POST(request: Request) {
   }
   const promptChunks = material.map(toPromptChunk);
 
-  const client = new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
+  // Forced through OpenRouter — see lib/openrouter.ts.
+  const client = openRouterClient(apiKey);
 
   // Text answer → grade the text directly (no images). Otherwise send images.
   const answerContent: GradeAnswerContent = answer

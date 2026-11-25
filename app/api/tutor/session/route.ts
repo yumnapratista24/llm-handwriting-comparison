@@ -1,5 +1,6 @@
 import { openRouterCompletions } from "@/lib/tutor/llm";
 import { findSession, getOrCreateSession, TutorError } from "@/lib/tutor/tutorService";
+import { openRouterKey } from "@/lib/openrouter";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
   if (!resultId) return err("resultId wajib diisi", 400);
 
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = openRouterKey();
     return Response.json(await getOrCreateSession(resultId, apiKey ? openRouterCompletions(apiKey) : null));
   } catch (e) {
     if (e instanceof TutorError) return err(e.message, e.status, e.code);

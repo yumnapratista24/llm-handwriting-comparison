@@ -1,11 +1,14 @@
-// Pinecone + OpenAI embeddings, wired through LangChain.
-// Server-only: PINECONE_API_KEY / PINECONE_INDEX / OPENAI_API_KEY never reach the client.
-// Grading still goes through the OpenRouter proxy; only embeddings hit OpenAI directly.
+// Pinecone + embeddings, wired through LangChain.
+// Server-only: PINECONE_API_KEY / PINECONE_INDEX / OPENROUTER_API_KEY never reach the client.
+// Embeddings are forced through OpenRouter (openai/text-embedding-3-small) — the
+// same model the grading worker embeds queries with, so both sides share one
+// 1536-d vector space. There is no direct OpenAI path anymore.
 import { Pinecone } from "@pinecone-database/pinecone";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
+import { OPENROUTER_EMBEDDING_MODEL, openRouterEmbeddings } from "@/lib/openrouter";
 
-export const EMBEDDING_MODEL = "text-embedding-3-small"; // 1536-d
+export const EMBEDDING_MODEL = OPENROUTER_EMBEDDING_MODEL; // 1536-d
 
 let _pc: Pinecone | null = null;
 let _embeddings: OpenAIEmbeddings | null = null;
@@ -26,9 +29,7 @@ export function pineconeIndex() {
 
 export function embeddings(): OpenAIEmbeddings {
   if (_embeddings) return _embeddings;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY belum diset di environment server (lokal: .env.local, deployment: Environment Variables)");
-  _embeddings = new OpenAIEmbeddings({ apiKey, model: EMBEDDING_MODEL });
+  _embeddings = openRouterEmbeddings();
   return _embeddings;
 }
 
